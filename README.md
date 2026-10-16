@@ -39,7 +39,11 @@
   - **彻底永久删除**：直接从磁盘擦除，立即释放物理空间。
   - **核心系统路径防护**：严格拦截系统核心根目录（`/System`、`/Library`、`/usr` 等），杜绝误伤风险。
   - **批量清理悬浮栏**：支持批量勾选，实时计算预计释放空间，提供二次弹窗确认保护。
-- 🤖 **原生 MCP 服务支持**：提供 6 大标准 MCP 工具，无缝接入大模型助手。
+- 👯 **大文件重复校验与智能标记**：
+  - 基于文件精确字节大小与毫秒级采样 Hash（头/中/尾组合指纹校验），极速比对排查海量重复大文件。
+  - 启发式智能推断“原件”（优先保留规范路径、创建更早的文件）与“多余副本”。
+  - 提供醒目告警横幅、一键筛选重复项与**“一键勾选所有多余副本”**，原件安全锁定保留，轻松释放浪费空间。
+- 🤖 **原生 MCP 服务支持**：提供 7 大标准 MCP 工具，无缝接入大模型助手。
 
 ---
 
@@ -117,6 +121,7 @@
 | `scan_ai_models_and_cache` | 专用于检索 HuggingFace、ModelScope、Ollama 等模型权重 | `min_size_mb`, `max_results` |
 | `move_files_to_trash` | 将指定文件安全移入 macOS 系统废纸篓 | `paths: list[str]` |
 | `delete_files_permanently` | 彻底永久删除指定文件（需显式确认） | `paths: list[str]`, `confirm: bool` |
+| `find_duplicate_files` | 基于采样 Hash 极速校验相同大文件，标记建议原件与冗余副本 | `path`, `min_size_mb`, `max_results` |
 | `reveal_in_finder` | 在 macOS 访达中高亮定位选中文件 | `path: str` |
 
 ### 3. 大模型对话示例

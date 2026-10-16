@@ -277,6 +277,11 @@
           <div>{{ t('foundFiles') }} <strong class="text-indigo-600 text-sm font-bold">{{ scanStatus.found_count }}</strong> 
             ({{ t('totalSize') }} {{ scanStatus.total_found_size_formatted }})
           </div>
+          <div v-if="scanStatus.duplicate_groups_count > 0" class="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 font-medium">
+            <span>👯 {{ t('statDuplicates') }} <strong class="text-amber-700 font-bold">{{ scanStatus.duplicate_files_count }}</strong> ({{ scanStatus.duplicate_groups_count }} {{ t('duplicateGroups') }})</span>
+            <span class="text-slate-300">|</span>
+            <span>{{ t('statDuplicateWasted') }} <strong class="text-rose-600 font-bold">{{ scanStatus.duplicate_wasted_size_formatted }}</strong></span>
+          </div>
           <button v-if="!scanStatus.is_scanning && scanStatus.results.length > 0" @click="clearScanCache" class="px-2.5 py-1 text-xs text-slate-500 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-lg transition-colors flex items-center gap-1" :title="t('clearCacheConfirm')">
             <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
             <span>{{ t('clearCache') }}</span>
@@ -395,6 +400,50 @@
       </div>
     </section>
 
+    <!-- 重复文件智能告警与快捷操作横幅 -->
+    <div 
+      v-if="!scanStatus.is_scanning && scanStatus.duplicate_groups_count > 0" 
+      class="mt-4 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-slate-50 border border-amber-200/90 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm"
+    >
+      <div class="flex items-start gap-3">
+        <div class="p-2.5 bg-amber-500 text-white rounded-xl shadow-sm shrink-0">
+          <i data-lucide="copy" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h4 class="text-xs sm:text-sm font-bold text-slate-800 flex items-center gap-2 flex-wrap">
+            <span>{{ t('duplicateBannerTitle', { groups: scanStatus.duplicate_groups_count, wasted: scanStatus.duplicate_wasted_size_formatted }) }}</span>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-300">
+              {{ scanStatus.duplicate_files_count }} {{ t('itemsUnit') }}
+            </span>
+          </h4>
+          <p class="text-xs text-slate-500 mt-0.5 leading-relaxed">
+            {{ t('duplicateBannerDesc') }}
+          </p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 self-end md:self-center shrink-0">
+        <!-- 仅看重复文件 -->
+        <button 
+          @click="activeCategory = 'duplicate'" 
+          :class="activeCategory === 'duplicate' ? 'bg-amber-600 text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-amber-50 border border-slate-200'"
+          class="px-3 py-1.5 text-xs rounded-xl font-medium transition-all flex items-center gap-1.5"
+        >
+          <i data-lucide="filter" class="w-3.5 h-3.5"></i>
+          <span>{{ t('btnViewDuplicates') }}</span>
+        </button>
+
+        <!-- 智能勾选所有多余副本 -->
+        <button 
+          @click="selectRedundantDuplicates" 
+          class="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-900 font-bold text-xs rounded-xl shadow-sm transition-all flex items-center gap-1.5"
+        >
+          <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
+          <span>{{ t('btnSelectRedundant') }}</span>
+        </button>
+      </div>
+    </div>
+
     <!-- 大文件表格列表 -->
     <section class="mt-4 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
       <!-- 空状态 -->
@@ -445,7 +494,10 @@
               v-for="item in filteredResults" 
               :key="item.path" 
               class="hover:bg-indigo-50/40 transition-colors group"
-              :class="{'bg-indigo-50/60': selectedPaths.has(item.path)}"
+              :class="[
+                selectedPaths.has(item.path) ? 'bg-indigo-50/60' : '',
+                item.is_duplicate && !item.is_original ? 'bg-amber-50/30' : ''
+              ]"
             >
               <!-- 勾选框 -->
               <td class="py-2.5 px-3 text-center shrink-0">
@@ -464,9 +516,21 @@
                     <i :data-lucide="getIconForCategory(item.category)" class="w-4 h-4"></i>
                   </div>
                   <div class="min-w-0 flex-1 overflow-hidden">
-                    <!-- 文件名：紧凑字号、单行溢出省略号 -->
-                    <div class="font-medium text-slate-800 text-xs truncate" :title="item.name">
-                      {{ item.name }}
+                    <!-- 文件名与重复标记徽标：紧凑字号、单行溢出省略号 -->
+                    <div class="flex items-center gap-1.5 min-w-0">
+                      <!-- 重复标记徽标：原件 vs 多余副本 -->
+                      <span 
+                        v-if="item.is_duplicate" 
+                        :class="item.is_original ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-300 font-bold'"
+                        class="px-1.5 py-0.2 text-[10px] rounded border shrink-0 flex items-center gap-0.5"
+                        :title="item.is_original ? t('badgeOriginalTooltip') : t('badgeRedundantTooltip')"
+                      >
+                        <span>{{ item.is_original ? t('badgeOriginal') : t('badgeRedundant') }}</span>
+                        <span class="opacity-75 font-mono">#{{ item.duplicate_group_index }}</span>
+                      </span>
+                      <span class="font-medium text-slate-800 text-xs truncate" :title="item.name">
+                        {{ item.name }}
+                      </span>
                     </div>
                     <!-- 路径：单行截断、浅色显示、带复制 -->
                     <div class="text-[11px] text-slate-400 font-mono truncate flex items-center gap-1 mt-0.5" :title="item.path">
@@ -691,6 +755,7 @@
               <li>{{ t('aboutF2') }}</li>
               <li>{{ t('aboutF3') }}</li>
               <li>{{ t('aboutF4') }}</li>
+              <li>{{ t('aboutF5') }}</li>
             </ul>
           </div>
 
@@ -821,6 +886,21 @@
         aboutF2: '结果持久化与免丢缓存：扫描数据与筛选配置自动在服务端与本地双重缓存，刷新页面不丢失。',
         aboutF3: '废纸篓优先安全保护：日常删除对接 macOS 系统废纸篓机制，随时可一键放回原处，核心系统路径拦截防误删。',
         aboutF4: '大模型原生 MCP 支持：提供 6 大标准 MCP 工具，无缝接入 Claude、Cursor、Antigravity，用自然语言对话管理磁盘。',
+        aboutF5: '重复大文件采样Hash比对：毫秒级采样指纹校验完全相同的副本，智能区分原件与多余副本，支持一键安全清理。',
+        statDuplicates: '重复文件:',
+        statDuplicateWasted: '浪费空间:',
+        duplicateGroups: '组',
+        filterDuplicates: '👯 重复文件',
+        duplicateBannerTitle: '检测到 {groups} 组完全相同的大文件，浪费约 {wasted} 空间！',
+        duplicateBannerDesc: '经采样 Hash 校验，已智能标记原件与重复副本。建议保留原件，一键勾选清理多余副本。',
+        btnSelectRedundant: '智能勾选所有多余副本',
+        btnViewDuplicates: '仅看重复文件',
+        badgeOriginal: '⭐ 原件',
+        badgeRedundant: '👯 副本',
+        badgeOriginalTooltip: '系统启发式推荐保留的原件（非废纸篓/非下载目录或路径规范）',
+        badgeRedundantTooltip: '与同组原件内容完全一致的多余副本，可安全清理',
+        toastSelectedRedundant: '已智能勾选 {count} 个多余副本文件 (预计释放 {size})，原件已安全保留！',
+        toastNoRedundant: '当前未发现可勾选的多余副本文件',
         aboutLicense: '开源许可:',
         aboutAuthor: '作者:',
         aboutRepo: 'GitHub 仓库',
@@ -922,6 +1002,21 @@
         aboutF2: 'Scan persistence & cache: Scan results and preferences are dual-cached on server and client, surviving page refreshes.',
         aboutF3: 'macOS Trash-first safety: Regular deletion integrates with macOS Trash for one-click restoration, with critical system path guardrails.',
         aboutF4: 'Native AI MCP Protocol: Ships 6 standard MCP tools for seamless dialogue-driven disk management with Claude, Cursor, and Antigravity.',
+        aboutF5: 'Duplicate File Verification: Millisecond sample-hash fingerprinting to detect identical duplicates, distinguishing originals from safe-to-clean copies.',
+        statDuplicates: 'Duplicates:',
+        statDuplicateWasted: 'Wasted:',
+        duplicateGroups: 'groups',
+        filterDuplicates: '👯 Duplicates',
+        duplicateBannerTitle: 'Detected {groups} groups of identical large files, wasting ~{wasted} space!',
+        duplicateBannerDesc: 'Verified by fast sample hash. Originals and redundant copies are classified. Safe to keep originals and clean copies.',
+        btnSelectRedundant: 'Select Redundant Copies',
+        btnViewDuplicates: 'View Duplicates',
+        badgeOriginal: '⭐ Original',
+        badgeRedundant: '👯 Copy',
+        badgeOriginalTooltip: 'Recommended original to keep (cleanest directory or earliest created)',
+        badgeRedundantTooltip: 'Redundant copy identical to original, safe to delete',
+        toastSelectedRedundant: 'Selected {count} redundant copies (~{size} reclaimable). Originals kept safe!',
+        toastNoRedundant: 'No redundant copies found to select',
         aboutLicense: 'License:',
         aboutAuthor: 'Author:',
         aboutRepo: 'GitHub Repo',
@@ -1023,6 +1118,21 @@
         aboutF2: 'スキャン結果の永続化：スキャン結果と設定をサーバーとローカル双方にキャッシュし、ページ更新でも失われません。',
         aboutF3: 'ゴミ箱優先の安全設計：macOSシステムゴミ箱と連携し、誤削除時はいつでも復元可能。システム基盤パスの削除をブロック。',
         aboutF4: 'ネイティブAI MCPプロトコル：Claude、Cursor、AntigravityなどのAIエージェントと自然言語で対話しながらディスクを整理可能。',
+        aboutF5: '重複ファイル検証機能：ミリ秒級のサンプルHashで同一ファイルを特定し、原本と余分なコピーを自動判別して安全に一括削除。',
+        statDuplicates: '重複ファイル:',
+        statDuplicateWasted: '浪費容量:',
+        duplicateGroups: '組',
+        filterDuplicates: '👯 重複ファイル',
+        duplicateBannerTitle: '{groups} 組の完全一致大容量ファイルを検出、約 {wasted} の容量を浪費中！',
+        duplicateBannerDesc: 'サンプルHash検証済み。原本と冗長なコピーを自動分類しました。原本を安全に保護しながら余分なコピーを整理できます。',
+        btnSelectRedundant: '余分なコピーを一括選択',
+        btnViewDuplicates: '重複ファイルのみ表示',
+        badgeOriginal: '⭐ 原本',
+        badgeRedundant: '👯 コピー',
+        badgeOriginalTooltip: '保持を推奨する原本（ダウンロード/ゴミ箱以外の正規パス）',
+        badgeRedundantTooltip: '原本と内容が完全に同一の余分なコピー、安全に削除可能',
+        toastSelectedRedundant: '{count} 個の余分なコピーを選択しました (解放見込み {size})。原本は保護されています！',
+        toastNoRedundant: '選択可能な余分なコピーはありません',
         aboutLicense: 'ライセンス:',
         aboutAuthor: '作者:',
         aboutRepo: 'GitHub リポジトリ',
@@ -1092,6 +1202,10 @@
           found_count: 0,
           total_found_size: 0,
           total_found_size_formatted: '0 B',
+          duplicate_groups_count: 0,
+          duplicate_files_count: 0,
+          duplicate_wasted_size: 0,
+          duplicate_wasted_size_formatted: '0 B',
           is_cached: false,
           cached_at: '',
           results: []
@@ -1126,16 +1240,24 @@
           message: ''
         });
 
-        const categories = computed(() => [
-          { key: 'all', label: t('allFiles') },
-          { key: 'model', label: t('catModel') },
-          { key: 'video', label: t('catVideo') },
-          { key: 'archive', label: t('catArchive') },
-          { key: 'audio', label: t('catAudio') },
-          { key: 'image', label: t('catImage') },
-          { key: 'document', label: t('catDocument') },
-          { key: 'other', label: t('catOther') }
-        ]);
+        const categories = computed(() => {
+          const list = [
+            { key: 'all', label: t('allFiles') }
+          ];
+          if (scanStatus.duplicate_groups_count > 0) {
+            list.push({ key: 'duplicate', label: t('filterDuplicates') });
+          }
+          list.push(
+            { key: 'model', label: t('catModel') },
+            { key: 'video', label: t('catVideo') },
+            { key: 'archive', label: t('catArchive') },
+            { key: 'audio', label: t('catAudio') },
+            { key: 'image', label: t('catImage') },
+            { key: 'document', label: t('catDocument') },
+            { key: 'other', label: t('catOther') }
+          );
+          return list;
+        });
 
         const getPresetName = (preset) => {
           if (preset.path === '~') return t('presetHome');
@@ -1218,7 +1340,9 @@
           let list = scanStatus.results || [];
 
           // 1. 分类筛选
-          if (activeCategory.value !== 'all') {
+          if (activeCategory.value === 'duplicate') {
+            list = list.filter(item => item.is_duplicate);
+          } else if (activeCategory.value !== 'all') {
             list = list.filter(item => item.category === activeCategory.value);
           }
 
@@ -1390,6 +1514,10 @@
               scanStatus.found_count = 0;
               scanStatus.total_found_size = 0;
               scanStatus.total_found_size_formatted = '0 B';
+              scanStatus.duplicate_groups_count = 0;
+              scanStatus.duplicate_files_count = 0;
+              scanStatus.duplicate_wasted_size = 0;
+              scanStatus.duplicate_wasted_size_formatted = '0 B';
               scanStatus.is_cached = false;
               scanStatus.cached_at = '';
               scanStatus.scanned_files_count = 0;
@@ -1429,9 +1557,28 @@
           showToast(t('copiedPath'));
         };
 
+        // 一键只勾选多余的重复文件副本 (保留原件安全)
+        const selectRedundantDuplicates = () => {
+          const redundantItems = (scanStatus.results || []).filter(item => item.is_duplicate && !item.is_original);
+          if (redundantItems.length === 0) {
+            showToast(t('toastNoRedundant'), 'error');
+            return;
+          }
+          redundantItems.forEach(item => selectedPaths.value.add(item.path));
+          let wastedBytes = redundantItems.reduce((acc, cur) => acc + cur.size, 0);
+          let wastedStr = '';
+          for (const unit of ['B', 'KB', 'MB', 'GB', 'TB']) {
+            if (wastedBytes < 1024.0) { wastedStr = wastedBytes.toFixed(1) + ' ' + unit; break; }
+            wastedBytes /= 1024.0;
+          }
+          showToast(t('toastSelectedRedundant', { count: redundantItems.length, size: wastedStr || scanStatus.duplicate_wasted_size_formatted }));
+          refreshIcons();
+        };
+
         const getCategoryCount = (key) => {
           if (!scanStatus.results) return 0;
           if (key === 'all') return scanStatus.results.length;
+          if (key === 'duplicate') return scanStatus.results.filter(r => r.is_duplicate).length;
           return scanStatus.results.filter(r => r.category === key).length;
         };
 
@@ -1591,6 +1738,7 @@
           revealInFinder,
           copyPath,
           getCategoryCount,
+          selectRedundantDuplicates,
           toggleSelectAll,
           toggleSelect,
           confirmSingleDelete,

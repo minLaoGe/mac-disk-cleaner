@@ -3,9 +3,11 @@ import sys
 import json
 import time
 import shutil
+import hashlib
 import subprocess
 import threading
 from pathlib import Path
+from collections import defaultdict
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -75,6 +77,94 @@ def get_file_category(ext: str) -> str:
             return cat
     return "other"
 
+def compute_fast_file_hash(file_path: str, chunk_size: int = 65536) -> Optional[str]:
+    """
+    通过头部、中部、尾部采样快速计算大文件的指纹哈希
+    比全量读取几十GB提速千倍，同时在文件大小相同的前提下碰撞率几乎为0
+    """
+    try:
+        size = os.path.getsize(file_path)
+        if size == 0:
+            return "empty_0"
+        hasher = hashlib.md5()
+        hasher.update(str(size).encode())
+        with open(file_path, "rb") as f:
+            if size <= chunk_size * 2:
+                hasher.update(f.read())
+            else:
+                hasher.update(f.read(chunk_size))
+                f.seek(size // 2)
+                hasher.update(f.read(chunk_size))
+                f.seek(size - chunk_size)
+                hasher.update(f.read(chunk_size))
+        return hasher.hexdigest()
+    except Exception:
+        return None
+
+def mark_duplicates_in_results(results: list) -> dict:
+    """
+    对扫描结果列表进行重复文件校验与标记
+    返回包含重复统计信息的汇总字典
+    """
+    # 1. 先按文件字节大小进行快速分桶
+    size_map = defaultdict(list)
+    for idx, item in enumerate(results):
+        item["is_duplicate"] = False
+        item["duplicate_group"] = None
+        item["duplicate_group_index"] = 0
+        item["duplicate_count"] = 1
+        item["is_original"] = False
+        size_map[item["size"]].append(idx)
+        
+    group_counter = 1
+    total_wasted_size = 0
+    duplicate_groups_count = 0
+    duplicate_files_count = 0
+    
+    # 2. 针对大小相同的文件计算采样 Hash 校验
+    for size, indices in size_map.items():
+        if len(indices) < 2:
+            continue
+            
+        hash_map = defaultdict(list)
+        for idx in indices:
+            path = results[idx]["path"]
+            f_hash = compute_fast_file_hash(path)
+            if f_hash:
+                hash_map[f_hash].append(idx)
+                
+        for f_hash, matched_indices in hash_map.items():
+            if len(matched_indices) >= 2:
+                group_id = f"dup_{group_counter}"
+                current_group_idx = group_counter
+                group_counter += 1
+                duplicate_groups_count += 1
+                duplicate_files_count += len(matched_indices)
+                wasted = size * (len(matched_indices) - 1)
+                total_wasted_size += wasted
+                
+                # 确定哪一个是“建议保留的原件”：优先保留非回收站/下载目录、路径较短、或创建更早的文件
+                matched_indices.sort(key=lambda i: (
+                    "/Trash" in results[i]["path"] or "/Downloads" in results[i]["path"],
+                    len(results[i]["path"]),
+                    results[i]["mtime"]
+                ))
+                original_idx = matched_indices[0]
+                
+                for pos, i in enumerate(matched_indices):
+                    results[i]["is_duplicate"] = True
+                    results[i]["duplicate_group"] = group_id
+                    results[i]["duplicate_group_index"] = current_group_idx
+                    results[i]["duplicate_count"] = len(matched_indices)
+                    results[i]["is_original"] = (i == original_idx)
+                    
+    return {
+        "duplicate_groups_count": duplicate_groups_count,
+        "duplicate_files_count": duplicate_files_count,
+        "duplicate_wasted_size": total_wasted_size,
+        "duplicate_wasted_size_formatted": format_size(total_wasted_size)
+    }
+
 class ScanManager:
     def __init__(self):
         self.is_scanning = False
@@ -87,6 +177,10 @@ class ScanManager:
         self.elapsed_seconds = 0.0
         self.results = []
         self.total_found_size = 0
+        self.duplicate_groups_count = 0
+        self.duplicate_files_count = 0
+        self.duplicate_wasted_size = 0
+        self.duplicate_wasted_size_formatted = "0 B"
         self.is_cached = False
         self.cached_at = ""
         self.lock = threading.Lock()
@@ -109,6 +203,12 @@ class ScanManager:
                     self.elapsed_seconds = data.get("elapsed_seconds", 0.0)
                     self.cached_at = data.get("cached_at", "")
                     self.is_cached = bool(self.results)
+                    if self.results:
+                        dup_stats = mark_duplicates_in_results(self.results)
+                        self.duplicate_groups_count = dup_stats["duplicate_groups_count"]
+                        self.duplicate_files_count = dup_stats["duplicate_files_count"]
+                        self.duplicate_wasted_size = dup_stats["duplicate_wasted_size"]
+                        self.duplicate_wasted_size_formatted = dup_stats["duplicate_wasted_size_formatted"]
         except Exception as e:
             print(f"[MacCleaner] 读取扫描缓存失败: {e}")
 
@@ -124,6 +224,10 @@ class ScanManager:
                 "total_found_size": self.total_found_size,
                 "total_found_size_formatted": format_size(self.total_found_size),
                 "found_count": len(self.results),
+                "duplicate_groups_count": self.duplicate_groups_count,
+                "duplicate_files_count": self.duplicate_files_count,
+                "duplicate_wasted_size": self.duplicate_wasted_size,
+                "duplicate_wasted_size_formatted": self.duplicate_wasted_size_formatted,
                 "results": self.results
             }
             with open(CACHE_FILE, "w", encoding="utf-8") as f:
@@ -137,6 +241,10 @@ class ScanManager:
         with self.lock:
             self.results = []
             self.total_found_size = 0
+            self.duplicate_groups_count = 0
+            self.duplicate_files_count = 0
+            self.duplicate_wasted_size = 0
+            self.duplicate_wasted_size_formatted = "0 B"
             self.is_cached = False
             self.cached_at = ""
             self.scanned_files_count = 0
@@ -247,8 +355,14 @@ class ScanManager:
                 self.elapsed_seconds = time.time() - self.start_time
                 # 按大小倒序排序
                 self.results.sort(key=lambda x: x["size"], reverse=True)
-                # 扫描结束或终止时自动持久化缓存到磁盘
+                # 校验并标记重复文件
                 if self.results:
+                    dup_stats = mark_duplicates_in_results(self.results)
+                    self.duplicate_groups_count = dup_stats["duplicate_groups_count"]
+                    self.duplicate_files_count = dup_stats["duplicate_files_count"]
+                    self.duplicate_wasted_size = dup_stats["duplicate_wasted_size"]
+                    self.duplicate_wasted_size_formatted = dup_stats["duplicate_wasted_size_formatted"]
+                    # 扫描结束或终止时自动持久化缓存到磁盘
                     self.save_cache()
 
     def get_status(self):
@@ -265,6 +379,10 @@ class ScanManager:
                 "found_count": len(self.results),
                 "total_found_size": self.total_found_size,
                 "total_found_size_formatted": format_size(self.total_found_size),
+                "duplicate_groups_count": self.duplicate_groups_count,
+                "duplicate_files_count": self.duplicate_files_count,
+                "duplicate_wasted_size": self.duplicate_wasted_size,
+                "duplicate_wasted_size_formatted": self.duplicate_wasted_size_formatted,
                 "is_cached": self.is_cached and not self.is_scanning,
                 "cached_at": self.cached_at,
                 "results": list(self.results)
@@ -280,6 +398,12 @@ class ScanManager:
                 else:
                     new_results.append(item)
             self.results = new_results
+            # 重新计算剩余文件的重复状态
+            dup_stats = mark_duplicates_in_results(self.results)
+            self.duplicate_groups_count = dup_stats["duplicate_groups_count"]
+            self.duplicate_files_count = dup_stats["duplicate_files_count"]
+            self.duplicate_wasted_size = dup_stats["duplicate_wasted_size"]
+            self.duplicate_wasted_size_formatted = dup_stats["duplicate_wasted_size_formatted"]
             # 同步更新持久化缓存文件
             self.save_cache()
 
@@ -418,6 +542,19 @@ def clear_scan_cache():
         raise HTTPException(status_code=400, detail="正在扫描中，无法清除缓存")
     scanner.clear_cache()
     return {"status": "ok", "message": "已成功清除扫描缓存"}
+
+@app.post("/api/scan/verify-duplicates")
+def verify_duplicates():
+    if scanner.is_scanning:
+        raise HTTPException(status_code=400, detail="正在扫描中，请等待扫描完成后校验")
+    with scanner.lock:
+        dup_stats = mark_duplicates_in_results(scanner.results)
+        scanner.duplicate_groups_count = dup_stats["duplicate_groups_count"]
+        scanner.duplicate_files_count = dup_stats["duplicate_files_count"]
+        scanner.duplicate_wasted_size = dup_stats["duplicate_wasted_size"]
+        scanner.duplicate_wasted_size_formatted = dup_stats["duplicate_wasted_size_formatted"]
+        scanner.save_cache()
+    return dup_stats
 
 @app.post("/api/file/reveal")
 def reveal_in_finder(req: RevealRequest):

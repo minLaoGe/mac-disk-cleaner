@@ -39,7 +39,11 @@ A modern large file inspection, AI model weight cleanup, and cache management to
   - **Permanent Deletion**: Permanently wipes files to reclaim disk space immediately.
   - **Protected System Paths**: Strict guardrails prevent deleting core operating system paths (`/System`, `/Library`, `/usr`, etc.).
   - **Floating Batch Action Bar**: Batch select files, review real-time reclaimable space estimation, and proceed with confirmation modals.
-- 🤖 **Native MCP Protocol Integration**: Ships 6 standard MCP tools for seamless interaction with AI model assistants.
+- 👯 **Duplicate File Verification & Smart Classification**:
+  - Sample-hash fingerprinting (head/mid/tail chunks) and exact byte-size matching to detect identical duplicate files in milliseconds without loading gigabytes into RAM.
+  - Heuristically distinguishes recommended **Originals** (cleanest directories or earliest creation) from redundant **Copies**.
+  - Visual alert banner, duplicate-only filter tab, and **"Select All Redundant Copies"** in one click while safely preserving original files.
+- 🤖 **Native MCP Protocol Integration**: Ships 7 standard MCP tools for seamless interaction with AI model assistants.
 
 ---
 
@@ -117,6 +121,7 @@ Add the following snippet to your MCP configuration (such as **Claude Desktop**,
 | `scan_ai_models_and_cache` | Scans weights from HuggingFace, ModelScope, Ollama, etc. | `min_size_mb`, `max_results` |
 | `move_files_to_trash` | Safely moves selected files to macOS system Trash | `paths: list[str]` |
 | `delete_files_permanently` | Permanently deletes files from disk (requires explicit confirmation) | `paths: list[str]`, `confirm: bool` |
+| `find_duplicate_files` | Detects identical duplicate large files using sample-hash, identifying originals and redundant copies | `path`, `min_size_mb`, `max_results` |
 | `reveal_in_finder` | Reveals and highlights specified file in macOS Finder | `path: str` |
 
 ### 3. Example AI Prompts

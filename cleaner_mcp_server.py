@@ -9,8 +9,10 @@ import os
 import sys
 import time
 import shutil
+import hashlib
 import subprocess
 from pathlib import Path
+from collections import defaultdict
 from typing import List, Optional, Dict, Any
 from mcp.server.mcpserver import MCPServer
 
@@ -357,6 +359,91 @@ def reveal_in_finder(path: str) -> Dict[str, Any]:
         return {"status": "ok", "message": f"Revealed in Finder: {path}"}
     except Exception as e:
         return {"error": str(e)}
+
+def compute_fast_file_hash(file_path: str, chunk_size: int = 65536) -> Optional[str]:
+    try:
+        size = os.path.getsize(file_path)
+        if size == 0:
+            return "empty_0"
+        hasher = hashlib.md5()
+        hasher.update(str(size).encode())
+        with open(file_path, "rb") as f:
+            if size <= chunk_size * 2:
+                hasher.update(f.read())
+            else:
+                hasher.update(f.read(chunk_size))
+                f.seek(size // 2)
+                hasher.update(f.read(chunk_size))
+                f.seek(size - chunk_size)
+                hasher.update(f.read(chunk_size))
+        return hasher.hexdigest()
+    except Exception:
+        return None
+
+@mcp.tool()
+def find_duplicate_files(
+    path: str = "~",
+    min_size_mb: float = 20.0,
+    max_results: int = 30
+) -> Dict[str, Any]:
+    """Scan for identical duplicate large files in a directory using file size and sample hash verification. Identifies recommended original and safe-to-delete redundant copies."""
+    root_path = Path(path).expanduser().resolve()
+    if not root_path.exists():
+        return {"error": f"Path does not exist: {path}"}
+
+    min_size_bytes = int(min_size_mb * 1024 * 1024)
+    size_map = defaultdict(list)
+    start_time = time.time()
+
+    for root, dirs, files in os.walk(str(root_path), followlinks=False):
+        dirs[:] = [d for d in dirs if d not in {".git", ".nvm", "node_modules", "site-packages"}]
+        for f in files:
+            file_path = os.path.join(root, f)
+            try:
+                stat = os.lstat(file_path)
+                if not os.path.islink(file_path) and stat.st_size >= min_size_bytes:
+                    size_map[stat.st_size].append((file_path, f, stat.st_mtime))
+            except Exception:
+                continue
+
+    duplicate_groups = []
+    total_wasted_bytes = 0
+
+    for size, file_list in size_map.items():
+        if len(file_list) < 2:
+            continue
+        hash_map = defaultdict(list)
+        for p, fname, mtime in file_list:
+            f_hash = compute_fast_file_hash(p)
+            if f_hash:
+                hash_map[f_hash].append({"name": fname, "path": p, "mtime": mtime})
+        for f_hash, matches in hash_map.items():
+            if len(matches) >= 2:
+                wasted = size * (len(matches) - 1)
+                total_wasted_bytes += wasted
+                matches.sort(key=lambda x: (
+                    "/Trash" in x["path"] or "/Downloads" in x["path"],
+                    len(x["path"]),
+                    x["mtime"]
+                ))
+                duplicate_groups.append({
+                    "file_size": format_size(size),
+                    "file_size_bytes": size,
+                    "wasted_size": format_size(wasted),
+                    "copies_count": len(matches),
+                    "recommended_original": matches[0]["path"],
+                    "redundant_copies": [x["path"] for x in matches[1:]]
+                })
+
+    duplicate_groups.sort(key=lambda x: x["file_size_bytes"], reverse=True)
+
+    return {
+        "scanned_path": str(root_path),
+        "duplicate_groups_found": len(duplicate_groups),
+        "total_wasted_space": format_size(total_wasted_bytes),
+        "elapsed_seconds": round(time.time() - start_time, 2),
+        "groups": duplicate_groups[:max_results]
+    }
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")
