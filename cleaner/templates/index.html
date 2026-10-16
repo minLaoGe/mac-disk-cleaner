@@ -39,7 +39,14 @@
             <i data-lucide="hard-drive" class="w-7 h-7"></i>
           </div>
           <div>
-            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Mac 大文件清理助手</h1>
+            <div class="flex items-center gap-2">
+              <h1 class="text-2xl font-bold tracking-tight text-slate-900">Mac 大文件清理助手</h1>
+              <span class="px-2 py-0.5 rounded-full text-[11px] font-mono font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">v1.2.0</span>
+              <button @click="openAboutModal" class="px-2.5 py-1 text-xs text-indigo-600 hover:text-indigo-800 bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200/80 rounded-lg flex items-center gap-1 font-medium ml-1 transition-all">
+                <i data-lucide="info" class="w-3.5 h-3.5"></i>
+                <span>关于项目</span>
+              </button>
+            </div>
             <p class="text-sm text-slate-500">快速扫描磁盘大文件、模型权重与缓存，安全清理释放空间</p>
           </div>
         </div>
@@ -466,6 +473,66 @@
       </div>
     </div>
 
+    <!-- 关于项目模态弹窗 -->
+    <div v-if="aboutModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+      <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in duration-200">
+        <div class="flex items-start justify-between pb-4 border-b border-slate-100">
+          <div class="flex items-center gap-3">
+            <div class="p-2.5 bg-indigo-600 text-white rounded-xl shadow-md shadow-indigo-100 flex items-center justify-center">
+              <i data-lucide="hard-drive" class="w-6 h-6"></i>
+            </div>
+            <div>
+              <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                <span>Mac 大文件清理助手</span>
+                <span class="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">v1.2.0</span>
+              </h3>
+              <p class="text-xs text-slate-500">Mac Disk Cleaner · 智能磁盘与模型清理中枢</p>
+            </div>
+          </div>
+          <button @click="aboutModalOpen = false" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <div class="py-4 space-y-3.5 text-xs text-slate-600 leading-relaxed">
+          <p>
+            <strong>Mac 大文件清理助手</strong> 是一款专为 macOS 系统量身打造的磁盘大文件排查、大模型权重清理与应用缓存治理工具。支持优雅的 Web 可视化面板，还原生集成了标准 <strong>MCP (Model Context Protocol)</strong> 协议。
+          </p>
+
+          <div class="bg-slate-50 rounded-xl p-3.5 border border-slate-200 space-y-2">
+            <div class="font-semibold text-slate-800 flex items-center gap-1.5">
+              <i data-lucide="sparkles" class="w-4 h-4 text-indigo-600"></i>
+              <span>核心特性与技术亮点</span>
+            </div>
+            <ul class="space-y-1.5 list-disc list-inside text-slate-600">
+              <li><strong>高速智能跳过微型依赖</strong>：全盘扫描自动跳过 node_modules、.git、.nvm 等数百万极碎文件，极速定位大文件。</li>
+              <li><strong>结果持久化与免丢缓存</strong>：扫描数据与筛选配置自动在服务端与本地双重缓存，刷新页面不丢失。</li>
+              <li><strong>废纸篓优先安全保护</strong>：日常删除对接 macOS 系统废纸篓机制，随时可一键放回原处，核心系统路径拦截防误删。</li>
+              <li><strong>大模型原生 MCP 支持</strong>：提供 6 大标准 MCP 工具，无缝接入 Claude、Cursor、Antigravity，用自然语言对话管理磁盘。</li>
+            </ul>
+          </div>
+
+          <div class="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+            <div class="flex items-center gap-2 text-slate-500">
+              <span>开源许可: <strong>MIT License</strong></span>
+              <span>·</span>
+              <span>作者: <strong>minLaoGe</strong></span>
+            </div>
+            <a href="https://github.com/minLaoGe/mac-disk-cleaner" target="_blank" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg flex items-center gap-1.5 transition-colors font-medium">
+              <i data-lucide="github" class="w-4 h-4"></i>
+              <span>GitHub 仓库</span>
+            </a>
+          </div>
+        </div>
+
+        <div class="flex justify-end pt-2">
+          <button @click="aboutModalOpen = false" class="px-5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors">
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Toast 提示消息 -->
     <div 
       v-if="toast.show" 
@@ -535,6 +602,12 @@
           totalSizeFormatted: '0 B',
           loading: false
         });
+
+        const aboutModalOpen = ref(false);
+        const openAboutModal = () => {
+          aboutModalOpen.value = true;
+          refreshIcons();
+        };
 
         const toast = reactive({
           show: false,
@@ -863,6 +936,8 @@
           confirmSingleDelete,
           confirmBatchDelete,
           executeDelete,
+          aboutModalOpen,
+          openAboutModal,
           getIconForCategory,
           getCategoryBadgeStyle
         };
