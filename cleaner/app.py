@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import time
 import shutil
 import subprocess
@@ -10,6 +11,8 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+CACHE_FILE = Path(__file__).parent / "scan_cache.json"
 
 app = FastAPI(title="Mac Big File Cleaner")
 
@@ -69,14 +72,73 @@ class ScanManager:
         self.is_scanning = False
         self.stop_requested = False
         self.current_dir = ""
+        self.target_path = ""
         self.scanned_files_count = 0
         self.scanned_dirs_count = 0
         self.start_time = 0.0
         self.elapsed_seconds = 0.0
         self.results = []
         self.total_found_size = 0
+        self.is_cached = False
+        self.cached_at = ""
         self.lock = threading.Lock()
         self.scan_thread: Optional[threading.Thread] = None
+
+        # 服务启动时自动恢复上次扫描缓存
+        self.load_cache()
+
+    def load_cache(self):
+        try:
+            if CACHE_FILE.exists():
+                with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self.results = data.get("results", [])
+                    self.total_found_size = data.get("total_found_size", 0)
+                    self.current_dir = data.get("current_dir", "")
+                    self.target_path = data.get("target_path", "")
+                    self.scanned_files_count = data.get("scanned_files_count", 0)
+                    self.scanned_dirs_count = data.get("scanned_dirs_count", 0)
+                    self.elapsed_seconds = data.get("elapsed_seconds", 0.0)
+                    self.cached_at = data.get("cached_at", "")
+                    self.is_cached = bool(self.results)
+        except Exception as e:
+            print(f"[MacCleaner] 读取扫描缓存失败: {e}")
+
+    def save_cache(self):
+        try:
+            data = {
+                "cached_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "target_path": self.target_path or self.current_dir,
+                "current_dir": self.current_dir,
+                "scanned_files_count": self.scanned_files_count,
+                "scanned_dirs_count": self.scanned_dirs_count,
+                "elapsed_seconds": round(self.elapsed_seconds, 1),
+                "total_found_size": self.total_found_size,
+                "total_found_size_formatted": format_size(self.total_found_size),
+                "found_count": len(self.results),
+                "results": self.results
+            }
+            with open(CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            self.is_cached = True
+            self.cached_at = data["cached_at"]
+        except Exception as e:
+            print(f"[MacCleaner] 保存扫描缓存失败: {e}")
+
+    def clear_cache(self):
+        with self.lock:
+            self.results = []
+            self.total_found_size = 0
+            self.is_cached = False
+            self.cached_at = ""
+            self.scanned_files_count = 0
+            self.scanned_dirs_count = 0
+            self.elapsed_seconds = 0.0
+            if CACHE_FILE.exists():
+                try:
+                    CACHE_FILE.unlink()
+                except Exception:
+                    pass
 
     def start(self, target_path: str, min_size_bytes: int, include_hidden: bool, max_depth: Optional[int] = None):
         with self.lock:
@@ -84,6 +146,7 @@ class ScanManager:
                 return False
             self.is_scanning = True
             self.stop_requested = False
+            self.target_path = target_path
             self.current_dir = target_path
             self.scanned_files_count = 0
             self.scanned_dirs_count = 0
@@ -91,6 +154,7 @@ class ScanManager:
             self.elapsed_seconds = 0.0
             self.results = []
             self.total_found_size = 0
+            self.is_cached = False
 
         self.scan_thread = threading.Thread(
             target=self._scan_worker,
@@ -119,6 +183,12 @@ class ScanManager:
                 if not include_hidden:
                     # 过滤隐藏文件夹
                     dirs[:] = [d for d in dirs if not d.startswith('.')]
+                else:
+                    # 即使包含隐藏文件，也跳过无大文件的依赖库黑洞目录，避免死耗数百万小文件
+                    dirs[:] = [d for d in dirs if d not in {".git", ".nvm", ".npm", ".cargo", ".rustup", ".gradle", ".m2", "__pycache__"}]
+
+                # 始终跳过庞大的依赖文件夹
+                dirs[:] = [d for d in dirs if d not in {"node_modules", "site-packages"}]
                 
                 if max_depth is not None and current_depth >= max_depth:
                     dirs[:] = []
@@ -169,6 +239,9 @@ class ScanManager:
                 self.elapsed_seconds = time.time() - self.start_time
                 # 按大小倒序排序
                 self.results.sort(key=lambda x: x["size"], reverse=True)
+                # 扫描结束或终止时自动持久化缓存到磁盘
+                if self.results:
+                    self.save_cache()
 
     def get_status(self):
         with self.lock:
@@ -177,12 +250,15 @@ class ScanManager:
             return {
                 "is_scanning": self.is_scanning,
                 "current_dir": self.current_dir,
+                "target_path": self.target_path,
                 "scanned_files_count": self.scanned_files_count,
                 "scanned_dirs_count": self.scanned_dirs_count,
                 "elapsed_seconds": round(self.elapsed_seconds, 1),
                 "found_count": len(self.results),
                 "total_found_size": self.total_found_size,
                 "total_found_size_formatted": format_size(self.total_found_size),
+                "is_cached": self.is_cached and not self.is_scanning,
+                "cached_at": self.cached_at,
                 "results": list(self.results)
             }
 
@@ -196,6 +272,8 @@ class ScanManager:
                 else:
                     new_results.append(item)
             self.results = new_results
+            # 同步更新持久化缓存文件
+            self.save_cache()
 
 scanner = ScanManager()
 
@@ -225,12 +303,16 @@ def get_system_info():
     presets = [
         {"name": "当前项目 (Antigravity)", "path": str(Path(__file__).parent.parent.resolve()), "icon": "folder-code"},
         {"name": "个人主目录 (~)", "path": home, "icon": "home"},
+        {"name": "Telegram 媒体缓存 (核心大头)", "path": os.path.join(home, "Library/Group Containers/6N38VWS5BX.ru.keepcoder.Telegram"), "icon": "send"},
+        {"name": "ComfyUI & 本地模型 (~/Documents/Codex)", "path": os.path.join(home, "Documents/Codex"), "icon": "brain"},
+        {"name": "Trae-CN 模型库 (~/Documents/Trae-CN)", "path": os.path.join(home, "Documents/Trae-CN"), "icon": "sparkles"},
+        {"name": "AI/模型缓存 (~/.cache)", "path": os.path.join(home, ".cache"), "icon": "cpu"},
         {"name": "下载 (Downloads)", "path": os.path.join(home, "Downloads"), "icon": "download"},
         {"name": "桌面 (Desktop)", "path": os.path.join(home, "Desktop"), "icon": "monitor"},
-        {"name": "AI/模型缓存 (~/.cache)", "path": os.path.join(home, ".cache"), "icon": "brain"},
-        {"name": "Ollama 模型 (~/.ollama)", "path": os.path.join(home, ".ollama"), "icon": "cpu"},
         {"name": "用户应用缓存 (Caches)", "path": os.path.join(home, "Library/Caches"), "icon": "database"},
         {"name": "微信聊天数据缓存", "path": os.path.join(home, "Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat"), "icon": "message-circle"},
+        {"name": "原神/PlayCover 数据", "path": os.path.join(home, "Library/Containers/com.miHoYo.Yuanshen"), "icon": "gamepad-2"},
+        {"name": "开发镜像与虚拟机 (development)", "path": os.path.join(home, "development"), "icon": "server"},
     ]
 
     valid_presets = []
@@ -280,6 +362,13 @@ def get_scan_status():
 def stop_scan():
     scanner.stop()
     return {"status": "ok", "message": "已请求停止扫描"}
+
+@app.post("/api/scan/clear-cache")
+def clear_scan_cache():
+    if scanner.is_scanning:
+        raise HTTPException(status_code=400, detail="正在扫描中，无法清除缓存")
+    scanner.clear_cache()
+    return {"status": "ok", "message": "已成功清除扫描缓存"}
 
 @app.post("/api/file/reveal")
 def reveal_in_finder(req: RevealRequest):

@@ -160,34 +160,45 @@
       </div>
     </section>
 
-    <!-- 扫描进度状态条 -->
-    <section v-if="scanStatus.is_scanning || scanStatus.scanned_files_count > 0" class="mt-4 bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+    <!-- 扫描进度与缓存状态条 -->
+    <section v-if="scanStatus.is_scanning || scanStatus.scanned_files_count > 0 || (scanStatus.results && scanStatus.results.length > 0)" class="mt-4 bg-white rounded-xl border border-slate-200 shadow-sm p-4">
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div class="flex items-center gap-3">
           <div v-if="scanStatus.is_scanning" class="animate-spin text-indigo-600">
             <i data-lucide="loader" class="w-5 h-5"></i>
           </div>
+          <div v-else-if="scanStatus.is_cached" class="text-amber-500">
+            <i data-lucide="database" class="w-5 h-5"></i>
+          </div>
           <div v-else class="text-emerald-500">
             <i data-lucide="check-circle-2" class="w-5 h-5"></i>
           </div>
           <div>
-            <div class="text-sm font-semibold text-slate-800">
+            <div class="text-sm font-semibold text-slate-800 flex items-center gap-2">
               <span v-if="scanStatus.is_scanning">正在扫描目录...</span>
+              <span v-else-if="scanStatus.is_cached" class="flex items-center gap-1.5">
+                <span>已恢复上次扫描结果</span>
+                <span class="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-normal">缓存于 {{ scanStatus.cached_at }}</span>
+              </span>
               <span v-else>扫描已完成</span>
             </div>
-            <div class="text-xs text-slate-500 truncate max-w-xl" :title="scanStatus.current_dir">
-              当前位置: {{ scanStatus.current_dir || '就绪' }}
+            <div class="text-xs text-slate-500 truncate max-w-xl" :title="scanStatus.current_dir || scanStatus.target_path">
+              扫描目标: {{ scanStatus.target_path || scanStatus.current_dir || '就绪' }}
             </div>
           </div>
         </div>
 
-        <div class="flex items-center gap-6 text-xs text-slate-600">
+        <div class="flex flex-wrap items-center gap-4 text-xs text-slate-600">
           <div>已检文件: <strong class="text-slate-800">{{ scanStatus.scanned_files_count }}</strong></div>
           <div>已扫描目录: <strong class="text-slate-800">{{ scanStatus.scanned_dirs_count }}</strong></div>
           <div>耗时: <strong class="text-slate-800">{{ scanStatus.elapsed_seconds }}s</strong></div>
           <div>发现大文件: <strong class="text-indigo-600 text-sm font-bold">{{ scanStatus.found_count }}</strong> 
             (共 {{ scanStatus.total_found_size_formatted }})
           </div>
+          <button v-if="!scanStatus.is_scanning && scanStatus.results.length > 0" @click="clearScanCache" class="px-2.5 py-1 text-xs text-slate-500 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-lg transition-colors flex items-center gap-1" title="清空已保存的扫描缓存">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            <span>清空缓存</span>
+          </button>
         </div>
       </div>
     </section>
@@ -468,7 +479,7 @@
   </div>
 
   <script>
-    const { createApp, ref, reactive, computed, onMounted, nextTick } = Vue;
+    const { createApp, ref, reactive, computed, watch, onMounted, nextTick } = Vue;
 
     createApp({
       setup() {
@@ -482,15 +493,33 @@
           max_depth: null
         });
 
+        // 尝试从浏览器本地存储恢复上次配置
+        try {
+          const savedConfig = localStorage.getItem('mac_cleaner_scan_config');
+          if (savedConfig) {
+            Object.assign(scanConfig, JSON.parse(savedConfig));
+          }
+        } catch (e) {}
+
+        // 监听配置变更并自动保存
+        watch(scanConfig, (val) => {
+          try {
+            localStorage.setItem('mac_cleaner_scan_config', JSON.stringify(val));
+          } catch (e) {}
+        }, { deep: true });
+
         const scanStatus = reactive({
           is_scanning: false,
           current_dir: '',
+          target_path: '',
           scanned_files_count: 0,
           scanned_dirs_count: 0,
           elapsed_seconds: 0,
           found_count: 0,
           total_found_size: 0,
           total_found_size_formatted: '0 B',
+          is_cached: false,
+          cached_at: '',
           results: []
         });
 
@@ -609,6 +638,31 @@
             showToast('已发送停止请求');
           } catch (e) {
             console.error(e);
+          }
+        };
+
+        const clearScanCache = async () => {
+          try {
+            const res = await fetch('/api/scan/clear-cache', { method: 'POST' });
+            if (res.ok) {
+              scanStatus.results = [];
+              scanStatus.found_count = 0;
+              scanStatus.total_found_size = 0;
+              scanStatus.total_found_size_formatted = '0 B';
+              scanStatus.is_cached = false;
+              scanStatus.cached_at = '';
+              scanStatus.scanned_files_count = 0;
+              scanStatus.scanned_dirs_count = 0;
+              scanStatus.elapsed_seconds = 0;
+              selectedPaths.value.clear();
+              showToast('已成功清除历史扫描缓存');
+              refreshIcons();
+            } else {
+              const err = await res.json();
+              showToast(err.detail || '清空缓存失败', 'error');
+            }
+          } catch (e) {
+            showToast('清空失败: ' + e.message, 'error');
           }
         };
 
@@ -800,6 +854,7 @@
           fetchSystemInfo,
           startScan,
           stopScan,
+          clearScanCache,
           revealInFinder,
           copyPath,
           getCategoryCount,
