@@ -52,6 +52,14 @@ def format_size(bytes_num: int) -> str:
         bytes_num /= 1024.0
     return f"{bytes_num:.1f} PB"
 
+def format_decimal_size(bytes_num: float) -> str:
+    """按 macOS 官方十进制标称 (1000进制) 格式化磁盘容量，与访达/系统设置 100% 对齐"""
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if bytes_num < 1000.0:
+            return f"{bytes_num:.1f} {unit}"
+        bytes_num /= 1000.0
+    return f"{bytes_num:.1f} PB"
+
 def get_file_category(ext: str) -> str:
     ext = ext.lower()
     categories = {
@@ -290,29 +298,78 @@ class DeleteRequest(BaseModel):
 class RevealRequest(BaseModel):
     path: str
 
+def get_macos_disk_details(home_path: str):
+    """
+    获取与 macOS 系统设置和访达 (Finder) 100% 对齐的真实可用容量，
+    同时提取 APFS 物理未分配空间和系统可清除空间 (Purgeable Space，如本地快照)
+    """
+    raw_usage = shutil.disk_usage(home_path)
+    total = raw_usage.total
+    raw_free = raw_usage.free
+    available = raw_free
+    used = total - available
+
+    # 优先调用 macOS 原生 Finder AppleScript 查询标称可用容量
+    try:
+        cmd = ["osascript", "-e", 'tell application "Finder" to get {free space, capacity} of startup disk']
+        out = subprocess.check_output(cmd, timeout=1.5).decode().strip()
+        parts = [float(x.strip()) for x in out.split(',')]
+        if len(parts) == 2:
+            finder_free = int(parts[0])
+            finder_total = int(parts[1])
+            if finder_free > 0 and finder_total > 0:
+                available = finder_free
+                total = finder_total
+                used = total - available
+    except Exception:
+        pass
+
+    percent = round((used / total) * 100, 1)
+    purgeable = max(0, available - raw_free)
+
+    # 统计 APFS Time Machine 本地快照数量
+    snapshots_count = 0
+    try:
+        out = subprocess.check_output(["tmutil", "listlocalsnapshots", "/"], timeout=1.0).decode().strip()
+        snaps = [line for line in out.splitlines() if line.startswith("com.apple.")]
+        snapshots_count = len(snaps)
+    except Exception:
+        pass
+
+    return {
+        "total": total,
+        "used": used,
+        "free": available,
+        "percent": percent,
+        "total_formatted": format_decimal_size(total),
+        "used_formatted": format_decimal_size(used),
+        "free_formatted": format_decimal_size(available),
+        "raw_free": raw_free,
+        "raw_free_formatted": format_decimal_size(raw_free),
+        "purgeable": purgeable,
+        "purgeable_formatted": format_decimal_size(purgeable),
+        "snapshots_count": snapshots_count,
+        "is_apfs_aligned": True
+    }
+
 @app.get("/api/system")
 def get_system_info():
     home = os.path.expanduser("~")
-    usage = shutil.disk_usage(home)
-    total = usage.total
-    used = usage.used
-    free = usage.free
-    percent = round((used / total) * 100, 1)
+    disk_info = get_macos_disk_details(home)
 
     # 常用目录快捷预设
     presets = [
-        {"name": "当前项目 (Antigravity)", "path": str(Path(__file__).parent.parent.resolve()), "icon": "folder-code"},
+        {"name": "当前项目 (mac-disk-cleaner)", "path": str(Path(__file__).parent.parent.resolve()), "icon": "folder-code"},
         {"name": "个人主目录 (~)", "path": home, "icon": "home"},
-        {"name": "Telegram 媒体缓存 (核心大头)", "path": os.path.join(home, "Library/Group Containers/6N38VWS5BX.ru.keepcoder.Telegram"), "icon": "send"},
-        {"name": "ComfyUI & 本地模型 (~/Documents/Codex)", "path": os.path.join(home, "Documents/Codex"), "icon": "brain"},
-        {"name": "Trae-CN 模型库 (~/Documents/Trae-CN)", "path": os.path.join(home, "Documents/Trae-CN"), "icon": "sparkles"},
-        {"name": "AI/模型缓存 (~/.cache)", "path": os.path.join(home, ".cache"), "icon": "cpu"},
         {"name": "下载 (Downloads)", "path": os.path.join(home, "Downloads"), "icon": "download"},
+        {"name": "AI/模型缓存 (~/.cache)", "path": os.path.join(home, ".cache"), "icon": "cpu"},
+        {"name": "Ollama 模型 (~/.ollama)", "path": os.path.join(home, ".ollama"), "icon": "brain"},
+        {"name": "Telegram 媒体缓存", "path": os.path.join(home, "Library/Group Containers/6N38VWS5BX.ru.keepcoder.Telegram"), "icon": "send"},
         {"name": "桌面 (Desktop)", "path": os.path.join(home, "Desktop"), "icon": "monitor"},
         {"name": "用户应用缓存 (Caches)", "path": os.path.join(home, "Library/Caches"), "icon": "database"},
         {"name": "微信聊天数据缓存", "path": os.path.join(home, "Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat"), "icon": "message-circle"},
-        {"name": "原神/PlayCover 数据", "path": os.path.join(home, "Library/Containers/com.miHoYo.Yuanshen"), "icon": "gamepad-2"},
-        {"name": "开发镜像与虚拟机 (development)", "path": os.path.join(home, "development"), "icon": "server"},
+        {"name": "系统数据盘 (/System/Volumes/Data)", "path": "/System/Volumes/Data", "icon": "hard-drive"},
+        {"name": "系统根目录 (/)", "path": "/", "icon": "folder"}
     ]
 
     valid_presets = []
@@ -324,15 +381,7 @@ def get_system_info():
             valid_presets.append(p)
 
     return {
-        "disk": {
-            "total": total,
-            "used": used,
-            "free": free,
-            "percent": percent,
-            "total_formatted": format_size(total),
-            "used_formatted": format_size(used),
-            "free_formatted": format_size(free),
-        },
+        "disk": disk_info,
         "presets": valid_presets,
         "home": home
     }

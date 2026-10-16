@@ -127,6 +127,15 @@
               <span>{{ t('diskFree') }}: <strong class="text-emerald-600 font-medium">{{ systemInfo.disk.free_formatted }}</strong></span>
               <span>{{ t('diskTotal') }}: {{ systemInfo.disk.total_formatted }}</span>
             </div>
+
+            <!-- APFS 可清除空间与物理未分配空间深度指示 -->
+            <div v-if="systemInfo.disk.purgeable > 0" class="mt-2 pt-1.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[10px] text-slate-500">
+              <span class="flex items-center gap-1" :title="t('diskApfsTooltip')">
+                <i data-lucide="info" class="w-3 h-3 text-indigo-500 shrink-0"></i>
+                <span>{{ t('diskPurgeable', { purgeable: systemInfo.disk.purgeable_formatted, count: systemInfo.disk.snapshots_count }) }}</span>
+              </span>
+              <span class="text-slate-400">{{ t('diskRawFree', { raw_free: systemInfo.disk.raw_free_formatted }) }}</span>
+            </div>
           </div>
 
           <!-- 刷新按钮 -->
@@ -719,10 +728,13 @@
         appTitle: 'Mac 大文件清理助手',
         appSubtitle: '快速扫描磁盘大文件、模型权重与缓存，安全清理释放空间',
         about: '关于项目',
-        diskSpace: '系统磁盘空间',
+        diskSpace: '系统磁盘空间 (访达一致)',
         diskUsed: '已用',
         diskFree: '剩余可用',
         diskTotal: '总容量',
+        diskPurgeable: '含 {purgeable} 可清除空间 ({count}个本地快照/缓存)',
+        diskRawFree: '物理硬未分配: {raw_free}',
+        diskApfsTooltip: 'macOS APFS 系统机制：访达计算的“可用空间”包含了可清除空间。若删除大文件后物理未分配空间没有立即激增，是因为被 Time Machine 本地快照保留，当存储不足时系统会自动回收释放。',
         refreshDisk: '刷新磁盘信息',
         refreshing: '正在获取系统空间...',
         diskRefreshed: '系统磁盘空间信息已刷新',
@@ -817,10 +829,13 @@
         appTitle: 'Mac Disk Cleaner',
         appSubtitle: 'Quickly scan large files, AI model weights & caches, safely clean and reclaim disk space',
         about: 'About',
-        diskSpace: 'System Disk Space',
+        diskSpace: 'System Disk (Finder Aligned)',
         diskUsed: 'Used',
-        diskFree: 'Free',
+        diskFree: 'Available (Finder)',
         diskTotal: 'Total',
+        diskPurgeable: 'Incl. {purgeable} purgeable ({count} snapshots/caches)',
+        diskRawFree: 'Raw physical free: {raw_free}',
+        diskApfsTooltip: 'macOS APFS Notice: Available space in Finder includes purgeable space. When files are deleted, physical blocks may be held by local Time Machine snapshots until automatically reclaimed by macOS.',
         refreshDisk: 'Refresh disk info',
         refreshing: 'Updating disk...',
         diskRefreshed: 'System disk space updated',
@@ -915,10 +930,13 @@
         appTitle: 'Mac 大容量ファイルクリーナー',
         appSubtitle: 'ディスクの大容量ファイル、AIモデルの重み、キャッシュを高速スキャンし、安全に空き容量を確保',
         about: 'プロジェクト情報',
-        diskSpace: 'システムディスク容量',
+        diskSpace: 'システムディスク (Finder準拠)',
         diskUsed: '使用中',
-        diskFree: '空き容量',
+        diskFree: '空き容量 (Finder)',
         diskTotal: '全容量',
+        diskPurgeable: '消去可能領域 {purgeable} を含む ({count}個のスナップショット)',
+        diskRawFree: '物理空き容量: {raw_free}',
+        diskApfsTooltip: 'macOS APFSの仕様：Finderの「空き容量」には消去可能領域が含まれます。削除されたファイルがTime Machineローカルスナップショットに保持されている場合、物理空き領域は必要に応じて自動解放されます。',
         refreshDisk: 'ディスク情報を更新',
         refreshing: '更新中...',
         diskRefreshed: 'ディスク情報を更新しました',

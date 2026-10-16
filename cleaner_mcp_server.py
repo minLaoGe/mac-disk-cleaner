@@ -43,6 +43,14 @@ def format_size(bytes_num: int) -> str:
         bytes_num /= 1024.0
     return f"{bytes_num:.1f} PB"
 
+def format_decimal_size(bytes_num: float) -> str:
+    """按 macOS 官方十进制标称 (1000进制) 格式化磁盘容量，与访达/系统设置 100% 对齐"""
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if bytes_num < 1000.0:
+            return f"{bytes_num:.1f} {unit}"
+        bytes_num /= 1000.0
+    return f"{bytes_num:.1f} PB"
+
 def get_file_category(ext: str) -> str:
     ext = ext.lower()
     categories = {
@@ -62,11 +70,37 @@ def get_file_category(ext: str) -> str:
 def get_disk_space_overview() -> Dict[str, Any]:
     """Get the current macOS disk usage overview (total, used, free space, percentage) and key target paths for cleaning."""
     home = os.path.expanduser("~")
-    usage = shutil.disk_usage(home)
-    total = usage.total
-    used = usage.used
-    free = usage.free
+    raw_usage = shutil.disk_usage(home)
+    total = raw_usage.total
+    raw_free = raw_usage.free
+    available = raw_free
+    used = total - available
+
+    # 优先获取 macOS 原生 Finder 可用空间
+    try:
+        cmd = ["osascript", "-e", 'tell application "Finder" to get {free space, capacity} of startup disk']
+        out = subprocess.check_output(cmd, timeout=1.5).decode().strip()
+        parts = [float(x.strip()) for x in out.split(',')]
+        if len(parts) == 2:
+            finder_free = int(parts[0])
+            finder_total = int(parts[1])
+            if finder_free > 0 and finder_total > 0:
+                available = finder_free
+                total = finder_total
+                used = total - available
+    except Exception:
+        pass
+
     percent = round((used / total) * 100, 1)
+    purgeable = max(0, available - raw_free)
+
+    snapshots_count = 0
+    try:
+        out = subprocess.check_output(["tmutil", "listlocalsnapshots", "/"], timeout=1.0).decode().strip()
+        snaps = [line for line in out.splitlines() if line.startswith("com.apple.")]
+        snapshots_count = len(snaps)
+    except Exception:
+        pass
 
     key_directories = [
         {"name": "Downloads", "path": os.path.join(home, "Downloads"), "desc": "Downloaded files and installers"},
@@ -92,11 +126,14 @@ def get_disk_space_overview() -> Dict[str, Any]:
         "disk": {
             "total_bytes": total,
             "used_bytes": used,
-            "free_bytes": free,
+            "free_bytes": available,
             "used_percent": percent,
-            "total_formatted": format_size(total),
-            "used_formatted": format_size(used),
-            "free_formatted": format_size(free),
+            "total_formatted": format_decimal_size(total),
+            "used_formatted": format_decimal_size(used),
+            "free_formatted": format_decimal_size(available),
+            "raw_free_formatted": format_decimal_size(raw_free),
+            "purgeable_formatted": format_decimal_size(purgeable),
+            "local_snapshots_count": snapshots_count,
             "status": "CRITICAL (>90% full)" if percent > 90 else ("WARNING (>80% full)" if percent > 80 else "HEALTHY")
         },
         "recommended_scan_locations": available_dirs
