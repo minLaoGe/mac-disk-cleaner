@@ -325,10 +325,10 @@
         </div>
       </div>
 
-      <!-- 维度2: 多维度精细检索区 (文件名 / 路径目录 / 所在目录下拉 / 后缀下拉 / 排序) -->
+      <!-- 维度2: 多维度精细检索区 (文件名 / 路径目录 / 所在目录下拉 / 后缀下拉) -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 items-center">
         <!-- 文件名搜索输入框 -->
-        <div class="lg:col-span-3 relative">
+        <div class="lg:col-span-4 relative">
           <span class="absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400">
             <i data-lucide="file-text" class="w-4 h-4"></i>
           </span>
@@ -344,7 +344,7 @@
         </div>
 
         <!-- 路径 / 目录搜索输入框 -->
-        <div class="lg:col-span-3 relative">
+        <div class="lg:col-span-4 relative">
           <span class="absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400">
             <i data-lucide="folder-search" class="w-4 h-4"></i>
           </span>
@@ -382,19 +382,6 @@
             <option v-for="e in availableExtensions" :key="e.ext" :value="e.ext">
               🏷️ {{ e.ext.toUpperCase() }} ({{ e.count }})
             </option>
-          </select>
-        </div>
-
-        <!-- 排序方式 -->
-        <div class="lg:col-span-2">
-          <select 
-            v-model="sortBy" 
-            class="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl px-2.5 py-2 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-700"
-          >
-            <option value="size_desc">{{ t('sortSizeDesc') }}</option>
-            <option value="size_asc">{{ t('sortSizeAsc') }}</option>
-            <option value="time_desc">{{ t('sortTimeDesc') }}</option>
-            <option value="name_asc">{{ t('sortNameAsc') }}</option>
           </select>
         </div>
       </div>
@@ -477,14 +464,74 @@
                   class="w-3.5 h-3.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
                 />
               </th>
-              <!-- 文件名与路径：自适应弹性伸缩，超出单行自动省略号，不撑爆表格 -->
-              <th scope="col" class="py-2.5 px-3 font-semibold">{{ t('colFileName') }}</th>
-              <!-- 类型：固定宽度 -->
-              <th scope="col" class="py-2.5 px-3 font-semibold w-24 text-center shrink-0">{{ t('colType') }}</th>
-              <!-- 文件大小：固定宽度高亮显示，始终可见 -->
-              <th scope="col" class="py-2.5 px-3 font-semibold w-28 text-right shrink-0 whitespace-nowrap">{{ t('colSize') }}</th>
-              <!-- 修改时间：固定宽度 -->
-              <th scope="col" class="py-2.5 px-3 font-semibold w-36 text-center shrink-0 whitespace-nowrap hidden sm:table-cell">{{ t('colTime') }}</th>
+              <!-- 文件名与路径：可点击排序 -->
+              <th 
+                scope="col" 
+                class="py-2.5 px-3 select-none cursor-pointer hover:bg-slate-100/60 transition-colors group" 
+                @click="handleSort('name')" 
+                :title="t('sortClickHint')"
+              >
+                <div class="flex items-center gap-1.5">
+                  <span :class="sortKey === 'name' ? 'text-indigo-600 font-bold' : 'font-semibold text-slate-600 group-hover:text-slate-900'">
+                    {{ t('colFileName') }}
+                  </span>
+                  <span class="inline-flex items-center">
+                    <i v-if="sortKey === 'name'" :data-lucide="sortOrder === 'desc' ? 'arrow-down' : 'arrow-up'" class="w-3.5 h-3.5 text-indigo-600"></i>
+                    <i v-else data-lucide="chevrons-up-down" class="w-3 h-3 text-slate-300 opacity-40 group-hover:opacity-100 transition-opacity"></i>
+                  </span>
+                </div>
+              </th>
+              <!-- 类型：固定宽度，可点击排序 -->
+              <th 
+                scope="col" 
+                class="py-2.5 px-3 w-24 text-center shrink-0 select-none cursor-pointer hover:bg-slate-100/60 transition-colors group" 
+                @click="handleSort('type')" 
+                :title="t('sortClickHint')"
+              >
+                <div class="flex items-center justify-center gap-1">
+                  <span :class="sortKey === 'type' ? 'text-indigo-600 font-bold' : 'font-semibold text-slate-600 group-hover:text-slate-900'">
+                    {{ t('colType') }}
+                  </span>
+                  <span class="inline-flex items-center">
+                    <i v-if="sortKey === 'type'" :data-lucide="sortOrder === 'desc' ? 'arrow-down' : 'arrow-up'" class="w-3.5 h-3.5 text-indigo-600"></i>
+                    <i v-else data-lucide="chevrons-up-down" class="w-3 h-3 text-slate-300 opacity-40 group-hover:opacity-100 transition-opacity"></i>
+                  </span>
+                </div>
+              </th>
+              <!-- 文件大小：固定宽度高亮显示，始终可见，可点击排序 -->
+              <th 
+                scope="col" 
+                class="py-2.5 px-3 w-28 text-right shrink-0 whitespace-nowrap select-none cursor-pointer hover:bg-slate-100/60 transition-colors group" 
+                @click="handleSort('size')" 
+                :title="t('sortClickHint')"
+              >
+                <div class="flex items-center justify-end gap-1">
+                  <span :class="sortKey === 'size' ? 'text-indigo-600 font-bold' : 'font-semibold text-slate-600 group-hover:text-slate-900'">
+                    {{ t('colSize') }}
+                  </span>
+                  <span class="inline-flex items-center">
+                    <i v-if="sortKey === 'size'" :data-lucide="sortOrder === 'desc' ? 'arrow-down' : 'arrow-up'" class="w-3.5 h-3.5 text-indigo-600"></i>
+                    <i v-else data-lucide="chevrons-up-down" class="w-3 h-3 text-slate-300 opacity-40 group-hover:opacity-100 transition-opacity"></i>
+                  </span>
+                </div>
+              </th>
+              <!-- 修改时间：固定宽度，可点击排序 -->
+              <th 
+                scope="col" 
+                class="py-2.5 px-3 w-36 text-center shrink-0 whitespace-nowrap hidden sm:table-cell select-none cursor-pointer hover:bg-slate-100/60 transition-colors group" 
+                @click="handleSort('mtime')" 
+                :title="t('sortClickHint')"
+              >
+                <div class="flex items-center justify-center gap-1">
+                  <span :class="sortKey === 'mtime' ? 'text-indigo-600 font-bold' : 'font-semibold text-slate-600 group-hover:text-slate-900'">
+                    {{ t('colTime') }}
+                  </span>
+                  <span class="inline-flex items-center">
+                    <i v-if="sortKey === 'mtime'" :data-lucide="sortOrder === 'desc' ? 'arrow-down' : 'arrow-up'" class="w-3.5 h-3.5 text-indigo-600"></i>
+                    <i v-else data-lucide="chevrons-up-down" class="w-3 h-3 text-slate-300 opacity-40 group-hover:opacity-100 transition-opacity"></i>
+                  </span>
+                </div>
+              </th>
               <!-- 快捷操作：固定宽度，绝对不可被推挤溢出 -->
               <th scope="col" class="py-2.5 px-3 font-semibold w-40 text-right shrink-0 whitespace-nowrap">{{ t('colActions') }}</th>
             </tr>
@@ -852,6 +899,7 @@
         colSize: '文件大小',
         colTime: '修改时间',
         colActions: '快捷操作',
+        sortClickHint: '点击按此列排序 (升序/降序)',
         emptyScanning: '正在扫描寻找大于 {size}MB 的文件...',
         emptyNoFound: '未找到符合大小条件的大文件，可尝试调小阈值或修改扫描路径',
         emptyFilter: '当前筛选条件下无匹配文件',
@@ -968,6 +1016,7 @@
         colSize: 'Size',
         colTime: 'Modified',
         colActions: 'Actions',
+        sortClickHint: 'Click to sort by this column (Asc/Desc)',
         emptyScanning: 'Scanning for files larger than {size}MB...',
         emptyNoFound: 'No large files found. Try lowering the size threshold or changing the path.',
         emptyFilter: 'No files match the current filter criteria.',
@@ -1084,6 +1133,7 @@
         colSize: 'サイズ',
         colTime: '更新日時',
         colActions: 'アクション',
+        sortClickHint: 'クリックしてこの列で並べ替え (昇順/降順)',
         emptyScanning: '{size}MB 以上の大容量ファイルをスキャン中...',
         emptyNoFound: '条件に一致する大容量ファイルは見つかりませんでした。閾値を下げるかパスを変更してください。',
         emptyFilter: '現在のフィルター条件に一致するファイルはありません',
@@ -1217,8 +1267,22 @@
         const pathQuery = ref('');
         const selectedFolder = ref('all');
         const selectedExt = ref('all');
-        const sortBy = ref('size_desc');
         const selectedPaths = ref(new Set());
+
+        // 表头列直接排序状态与交互方法 (文件大小、修改时间、文件类型、文件名)
+        const sortKey = ref('size');
+        const sortOrder = ref('desc'); // 'desc' 或 'asc'
+
+        const handleSort = (key) => {
+          if (sortKey.value === key) {
+            sortOrder.value = sortOrder.value === 'desc' ? 'asc' : 'desc';
+          } else {
+            sortKey.value = key;
+            // 大小与修改时间默认倒序（大到小、最新），名称与类型默认正序（A-Z）
+            sortOrder.value = (key === 'size' || key === 'mtime') ? 'desc' : 'asc';
+          }
+          refreshIcons();
+        };
 
         const deleteModal = reactive({
           show: false,
@@ -1333,6 +1397,9 @@
           pathQuery.value = '';
           selectedFolder.value = 'all';
           selectedExt.value = 'all';
+          sortKey.value = 'size';
+          sortOrder.value = 'desc';
+          refreshIcons();
         };
 
         // 综合多维度筛选逻辑 (分类 + 文件名 + 路径 + 所在目录 + 后缀 + 排序)
@@ -1376,12 +1443,20 @@
             });
           }
 
-          // 6. 排序
+          // 6. 排序 (支持表头点击：大小、时间、类型、文件名)
           list = [...list].sort((a, b) => {
-            if (sortBy.value === 'size_desc') return b.size - a.size;
-            if (sortBy.value === 'size_asc') return a.size - b.size;
-            if (sortBy.value === 'time_desc') return b.mtime - a.mtime;
-            if (sortBy.value === 'name_asc') return a.name.localeCompare(b.name);
+            const factor = sortOrder.value === 'desc' ? -1 : 1;
+            if (sortKey.value === 'size') {
+              return (a.size - b.size) * factor;
+            } else if (sortKey.value === 'mtime') {
+              return (a.mtime - b.mtime) * factor;
+            } else if (sortKey.value === 'type') {
+              const typeA = (a.ext || a.category || '').toLowerCase();
+              const typeB = (b.ext || b.category || '').toLowerCase();
+              return typeA.localeCompare(typeB) * factor;
+            } else if (sortKey.value === 'name') {
+              return (a.name || '').localeCompare(b.name || '') * factor;
+            }
             return 0;
           });
 
@@ -1722,7 +1797,9 @@
           activeFiltersCount,
           resetFilters,
           getShortFolder,
-          sortBy,
+          sortKey,
+          sortOrder,
+          handleSort,
           selectedPaths,
           deleteModal,
           toast,
