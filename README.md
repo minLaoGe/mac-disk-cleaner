@@ -1,6 +1,12 @@
 # 🍎 Mac 大文件清理助手 (Mac Disk Cleaner)
 
 <p align="center">
+  <a href="README.md"><strong>简体中文</strong></a> •
+  <a href="README.en.md"><strong>English</strong></a> •
+  <a href="README.ja.md"><strong>日本語</strong></a>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/Platform-macOS-black?logo=apple" alt="macOS" />
   <img src="https://img.shields.io/badge/Python-3.10+-blue?logo=python" alt="Python" />
   <img src="https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi" alt="FastAPI" />
@@ -8,20 +14,25 @@
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License" />
 </p>
 
-专为 **macOS** 打造的现代化大文件排查与磁盘清理工具。提供 **优雅美观的 Web 可视化管理面板**，并原生支持 **MCP (Model Context Protocol)** 协议，既可以在浏览器中自由勾选清理，也能直接通过 Claude、Cursor、Antigravity 等大模型以自然语言对话管理磁盘！
+专为 **macOS** 打造的现代化大文件排查、大模型权重清理与应用缓存治理工具。提供 **优雅美观的 Web 可视化管理面板**，并原生支持 **MCP (Model Context Protocol)** 协议，既可以在浏览器中自由勾选清理，也能直接通过 Claude、Cursor、Antigravity 等大模型以自然语言对话管理磁盘！
 
 ---
 
 ## 🌟 核心特性
 
 - 🖥️ **现代直观的 Web 界面**：自包含单页，无需复杂前端构建环境，启动即开即用。
+- 🌐 **多语言国际化 (i18n)**：原生支持 🇨🇳 **简体中文**、🇺🇸 **English**、🇯🇵 **日本語** 一键即时切换，持久化保存用户语言偏好。
 - 📊 **系统磁盘实时看板**：顶部实时监控当前磁盘总量、已用比例及可用剩余容量（智能健康度色彩预警）。
 - ⚡ **快捷路径预设与全盘检索**：
   - 快速一键定位：**个人主目录 (`~`)**、**下载 (`Downloads`)**、**AI与模型缓存 (`~/.cache`)**、**Ollama 模型 (`~/.ollama`)**、**桌面**、**微信媒体缓存**等。
   - 支持任意自定义路径检索与隐藏目录检索（`.cache`、`.venv`、`.git` 等）。
-- 🎯 **智能分类与精细筛选**：
-  - 自动识别文件分类：**AI/模型权重** (`.safetensors`/`.bin`/`.gguf`/`.pth`)、**视频媒体**、**压缩包与镜像** (`.dmg`/`.zip`/`.iso`)、**音频**、**设计文档**。
-  - 支持按文件名与路径模糊实时搜索、按大小或时间倒序排序。
+- 🎯 **多维度精细检索与智能聚合过滤**：
+  - **分类标签快速过滤**：自动识别 AI/模型权重 (`.safetensors`/`.bin`/`.gguf`/`.pth`)、视频媒体、压缩包与镜像 (`.dmg`/`.zip`/`.iso`)、音频、设计文档等。
+  - **双重搜索**：独立支持“文件名搜索”与“完整路径/所在目录搜索”。
+  - **动态聚合目录筛选**：自动从本次扫描结果中提炼出所在父目录列表并统计出现频次，一键筛选特定目录。
+  - **动态聚合后缀筛选**：自动从扫描结果中提炼出所有涉及的文件后缀格式及数量统计。
+  - **快捷重置**：一键重置当前激活的多重过滤条件并显示实时生效项数。
+- 💾 **扫描结果持久化与断点免丢**：扫描数据在服务端与浏览器端双重缓存，刷新页面不丢失，支持一键清空缓存。
 - 📂 **访达 (Finder) 深度联动**：列表中一键定位并高亮选中文件，方便清理前双击预览确认。
 - 🛡️ **双重安全删除机制**：
   - **移入废纸篓 (推荐安全)**：将文件安全放至 macOS 系统废纸篓，误删可从废纸篓一键还原。

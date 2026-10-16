@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html :lang="currentLang === 'zh' ? 'zh-CN' : (currentLang === 'ja' ? 'ja' : 'en')">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mac 大文件清理助手 - Disk Cleaner</title>
+  <title>Mac 大文件清理助手 - Mac Disk Cleaner</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Lucide Icons -->
@@ -32,51 +32,82 @@
   <div id="app" v-cloak class="max-w-7xl mx-auto px-4 py-8">
     
     <!-- 顶部 Header -->
-    <header class="flex flex-col md:flex-row md:items-center md:justify-between pb-6 border-b border-slate-200 gap-4">
+    <header class="flex flex-col lg:flex-row lg:items-center lg:justify-between pb-6 border-b border-slate-200 gap-4">
       <div>
         <div class="flex items-center gap-3">
           <div class="p-2.5 bg-indigo-600 text-white rounded-xl shadow-md shadow-indigo-100 flex items-center justify-center">
             <i data-lucide="hard-drive" class="w-7 h-7"></i>
           </div>
           <div>
-            <div class="flex items-center gap-2">
-              <h1 class="text-2xl font-bold tracking-tight text-slate-900">Mac 大文件清理助手</h1>
+            <div class="flex items-center gap-2 flex-wrap">
+              <h1 class="text-2xl font-bold tracking-tight text-slate-900">{{ t('appTitle') }}</h1>
               <span class="px-2 py-0.5 rounded-full text-[11px] font-mono font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">v1.2.0</span>
               <button @click="openAboutModal" class="px-2.5 py-1 text-xs text-indigo-600 hover:text-indigo-800 bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200/80 rounded-lg flex items-center gap-1 font-medium ml-1 transition-all">
                 <i data-lucide="info" class="w-3.5 h-3.5"></i>
-                <span>关于项目</span>
+                <span>{{ t('about') }}</span>
               </button>
             </div>
-            <p class="text-sm text-slate-500">快速扫描磁盘大文件、模型权重与缓存，安全清理释放空间</p>
+            <p class="text-sm text-slate-500 mt-0.5">{{ t('appSubtitle') }}</p>
           </div>
         </div>
       </div>
 
-      <!-- 磁盘使用情况卡片 -->
-      <div v-if="systemInfo.disk" class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-6 min-w-[320px]">
-        <div class="flex-1">
-          <div class="flex justify-between items-center mb-1 text-xs">
-            <span class="font-medium text-slate-600">系统磁盘空间</span>
-            <span :class="systemInfo.disk.percent > 85 ? 'text-rose-600 font-bold' : 'text-slate-700 font-semibold'">
-              已用 {{ systemInfo.disk.percent }}%
-            </span>
-          </div>
-          <!-- 进度条 -->
-          <div class="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-            <div 
-              class="h-full rounded-full transition-all duration-500"
-              :class="systemInfo.disk.percent > 90 ? 'bg-rose-500' : (systemInfo.disk.percent > 75 ? 'bg-amber-500' : 'bg-emerald-500')"
-              :style="{ width: systemInfo.disk.percent + '%' }"
-            ></div>
-          </div>
-          <div class="flex justify-between items-center mt-1.5 text-xs text-slate-400">
-            <span>剩余可用: <strong class="text-emerald-600 font-medium">{{ systemInfo.disk.free_formatted }}</strong></span>
-            <span>总容量: {{ systemInfo.disk.total_formatted }}</span>
-          </div>
+      <!-- 右侧控制区: 语言切换 + 磁盘看板 -->
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+        <!-- 国际化语言切换器 (Language Switcher) -->
+        <div class="flex items-center self-start sm:self-center bg-slate-200/70 p-1 rounded-xl border border-slate-200 text-xs font-medium">
+          <button 
+            @click="changeLang('zh')" 
+            :class="currentLang === 'zh' ? 'bg-white text-indigo-700 font-bold shadow-sm' : 'text-slate-600 hover:text-slate-900'"
+            class="px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1"
+          >
+            <span>🇨🇳</span>
+            <span>中文</span>
+          </button>
+          <button 
+            @click="changeLang('en')" 
+            :class="currentLang === 'en' ? 'bg-white text-indigo-700 font-bold shadow-sm' : 'text-slate-600 hover:text-slate-900'"
+            class="px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1"
+          >
+            <span>🇺🇸</span>
+            <span>English</span>
+          </button>
+          <button 
+            @click="changeLang('ja')" 
+            :class="currentLang === 'ja' ? 'bg-white text-indigo-700 font-bold shadow-sm' : 'text-slate-600 hover:text-slate-900'"
+            class="px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1"
+          >
+            <span>🇯🇵</span>
+            <span>日本語</span>
+          </button>
         </div>
-        <button @click="fetchSystemInfo" title="刷新磁盘信息" class="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg transition-colors">
-          <i data-lucide="refresh-cw" class="w-4 h-4" :class="{'animate-spin': isRefreshingDisk}"></i>
-        </button>
+
+        <!-- 磁盘使用情况卡片 -->
+        <div v-if="systemInfo.disk" class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 min-w-[280px]">
+          <div class="flex-1">
+            <div class="flex justify-between items-center mb-1 text-xs">
+              <span class="font-medium text-slate-600">{{ t('diskSpace') }}</span>
+              <span :class="systemInfo.disk.percent > 85 ? 'text-rose-600 font-bold' : 'text-slate-700 font-semibold'">
+                {{ t('diskUsed') }} {{ systemInfo.disk.percent }}%
+              </span>
+            </div>
+            <!-- 进度条 -->
+            <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+              <div 
+                class="h-full rounded-full transition-all duration-500"
+                :class="systemInfo.disk.percent > 90 ? 'bg-rose-500' : (systemInfo.disk.percent > 75 ? 'bg-amber-500' : 'bg-emerald-500')"
+                :style="{ width: systemInfo.disk.percent + '%' }"
+              ></div>
+            </div>
+            <div class="flex justify-between items-center mt-1 text-[11px] text-slate-400">
+              <span>{{ t('diskFree') }}: <strong class="text-emerald-600 font-medium">{{ systemInfo.disk.free_formatted }}</strong></span>
+              <span>{{ t('diskTotal') }}: {{ systemInfo.disk.total_formatted }}</span>
+            </div>
+          </div>
+          <button @click="fetchSystemInfo" :title="t('refreshDisk')" class="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg transition-colors">
+            <i data-lucide="refresh-cw" class="w-4 h-4" :class="{'animate-spin': isRefreshingDisk}"></i>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -85,8 +116,8 @@
       <div class="space-y-5">
         <!-- 扫描目标路径 -->
         <div>
-          <label class="block text-sm font-semibold text-slate-700 mb-2">扫描目录路径</label>
-          <div class="flex gap-2">
+          <label class="block text-sm font-semibold text-slate-700 mb-2">{{ t('scanPathLabel') }}</label>
+          <div class="flex flex-col sm:flex-row gap-2">
             <div class="relative flex-1">
               <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
                 <i data-lucide="folder" class="w-5 h-5"></i>
@@ -94,31 +125,31 @@
               <input 
                 v-model="scanConfig.path" 
                 type="text" 
-                placeholder="例如: /Users/username/Downloads 或 ~" 
+                :placeholder="t('scanPathPlaceholder')" 
                 class="w-full pl-10 pr-4 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
               />
             </div>
             <button 
               v-if="!scanStatus.is_scanning"
               @click="startScan" 
-              class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium rounded-xl shadow-sm transition-all flex items-center gap-2"
+              class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium rounded-xl shadow-sm transition-all flex items-center justify-center gap-2"
             >
               <i data-lucide="search" class="w-4 h-4"></i>
-              开始扫描
+              <span>{{ t('startScan') }}</span>
             </button>
             <button 
               v-else
               @click="stopScan" 
-              class="px-6 py-2.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white text-sm font-medium rounded-xl shadow-sm transition-all flex items-center gap-2"
+              class="px-6 py-2.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white text-sm font-medium rounded-xl shadow-sm transition-all flex items-center justify-center gap-2"
             >
               <i data-lucide="square" class="w-4 h-4"></i>
-              停止扫描
+              <span>{{ t('stopScan') }}</span>
             </button>
           </div>
 
           <!-- 常用路径快捷按钮 -->
           <div class="mt-3 flex flex-wrap items-center gap-2">
-            <span class="text-xs text-slate-400 mr-1">快捷预设:</span>
+            <span class="text-xs text-slate-400 mr-1">{{ t('quickPresets') }}</span>
             <button 
               v-for="p in systemInfo.presets" 
               :key="p.path"
@@ -126,7 +157,7 @@
               :class="scanConfig.path === p.expanded_path ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-medium' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'"
               class="px-2.5 py-1 text-xs border rounded-lg transition-colors flex items-center gap-1"
             >
-              <span>{{ p.name }}</span>
+              <span>{{ getPresetName(p) }}</span>
             </button>
           </div>
         </div>
@@ -135,8 +166,8 @@
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-2 border-t border-slate-100">
           <!-- 最小文件大小阈值 -->
           <div>
-            <label class="block text-xs font-semibold text-slate-600 mb-2">最小文件大小阈值 (MB)</label>
-            <div class="flex items-center gap-2">
+            <label class="block text-xs font-semibold text-slate-600 mb-2">{{ t('minSizeLabel') }}</label>
+            <div class="flex items-center gap-2 flex-wrap">
               <button 
                 v-for="size in [20, 50, 100, 500, 1024, 2048]" 
                 :key="size"
@@ -151,7 +182,7 @@
                 type="number" 
                 min="1"
                 class="w-20 px-2 py-1 text-xs text-center border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                placeholder="自定义"
+                :placeholder="t('customSize')"
               />
             </div>
           </div>
@@ -160,7 +191,7 @@
           <div class="flex items-center gap-6">
             <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 select-none">
               <input type="checkbox" v-model="scanConfig.include_hidden" class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
-              <span>扫描隐藏目录 (.cache/.ollama等)</span>
+              <span>{{ t('scanHidden') }}</span>
             </label>
           </div>
         </div>
@@ -182,75 +213,143 @@
           </div>
           <div>
             <div class="text-sm font-semibold text-slate-800 flex items-center gap-2">
-              <span v-if="scanStatus.is_scanning">正在扫描目录...</span>
-              <span v-else-if="scanStatus.is_cached" class="flex items-center gap-1.5">
-                <span>已恢复上次扫描结果</span>
-                <span class="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-normal">缓存于 {{ scanStatus.cached_at }}</span>
+              <span v-if="scanStatus.is_scanning">{{ t('statusScanning') }}</span>
+              <span v-else-if="scanStatus.is_cached" class="flex items-center gap-1.5 flex-wrap">
+                <span>{{ t('statusCached') }}</span>
+                <span class="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-normal">
+                  {{ t('statusCachedAt') }} {{ scanStatus.cached_at }}
+                </span>
               </span>
-              <span v-else>扫描已完成</span>
+              <span v-else>{{ t('statusCompleted') }}</span>
             </div>
             <div class="text-xs text-slate-500 truncate max-w-xl" :title="scanStatus.current_dir || scanStatus.target_path">
-              扫描目标: {{ scanStatus.target_path || scanStatus.current_dir || '就绪' }}
+              {{ t('targetLabel') }} {{ scanStatus.target_path || scanStatus.current_dir || '就绪' }}
             </div>
           </div>
         </div>
 
         <div class="flex flex-wrap items-center gap-4 text-xs text-slate-600">
-          <div>已检文件: <strong class="text-slate-800">{{ scanStatus.scanned_files_count }}</strong></div>
-          <div>已扫描目录: <strong class="text-slate-800">{{ scanStatus.scanned_dirs_count }}</strong></div>
-          <div>耗时: <strong class="text-slate-800">{{ scanStatus.elapsed_seconds }}s</strong></div>
-          <div>发现大文件: <strong class="text-indigo-600 text-sm font-bold">{{ scanStatus.found_count }}</strong> 
-            (共 {{ scanStatus.total_found_size_formatted }})
+          <div>{{ t('scannedFiles') }} <strong class="text-slate-800">{{ scanStatus.scanned_files_count }}</strong></div>
+          <div>{{ t('scannedDirs') }} <strong class="text-slate-800">{{ scanStatus.scanned_dirs_count }}</strong></div>
+          <div>{{ t('elapsed') }} <strong class="text-slate-800">{{ scanStatus.elapsed_seconds }}s</strong></div>
+          <div>{{ t('foundFiles') }} <strong class="text-indigo-600 text-sm font-bold">{{ scanStatus.found_count }}</strong> 
+            ({{ t('totalSize') }} {{ scanStatus.total_found_size_formatted }})
           </div>
-          <button v-if="!scanStatus.is_scanning && scanStatus.results.length > 0" @click="clearScanCache" class="px-2.5 py-1 text-xs text-slate-500 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-lg transition-colors flex items-center gap-1" title="清空已保存的扫描缓存">
+          <button v-if="!scanStatus.is_scanning && scanStatus.results.length > 0" @click="clearScanCache" class="px-2.5 py-1 text-xs text-slate-500 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-lg transition-colors flex items-center gap-1" :title="t('clearCacheConfirm')">
             <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-            <span>清空缓存</span>
+            <span>{{ t('clearCache') }}</span>
           </button>
         </div>
       </div>
     </section>
 
-    <!-- 筛选与搜索工具条 -->
-    <section v-if="scanStatus.results && scanStatus.results.length > 0" class="mt-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-      <!-- 类型过滤 -->
-      <div class="flex flex-wrap items-center gap-1.5">
-        <button 
-          v-for="cat in categories" 
-          :key="cat.key"
-          @click="activeCategory = cat.key"
-          :class="activeCategory === cat.key ? 'bg-indigo-600 text-white font-medium shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'"
-          class="px-3 py-1.5 text-xs rounded-xl transition-colors flex items-center gap-1"
-        >
-          <span>{{ cat.label }}</span>
-          <span 
-            :class="activeCategory === cat.key ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'" 
-            class="px-1.5 py-0.2 rounded-full text-[10px]"
+    <!-- 结果高级筛选与搜索工具条 (文件名称/路径/目录/后缀) -->
+    <section v-if="scanStatus.results && scanStatus.results.length > 0" class="mt-6 bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3.5">
+      <!-- 维度1: 类型分类标签 Filter Tabs -->
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+        <div class="flex flex-wrap items-center gap-1.5">
+          <button 
+            v-for="cat in categories" 
+            :key="cat.key"
+            @click="activeCategory = cat.key"
+            :class="activeCategory === cat.key ? 'bg-indigo-600 text-white font-medium shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'"
+            class="px-3 py-1.5 text-xs rounded-xl transition-colors flex items-center gap-1.5"
           >
-            {{ getCategoryCount(cat.key) }}
-          </span>
-        </button>
-      </div>
-
-      <!-- 搜索 & 排序 -->
-      <div class="flex items-center gap-2">
-        <div class="relative w-64">
-          <span class="absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400">
-            <i data-lucide="filter" class="w-4 h-4"></i>
-          </span>
-          <input 
-            v-model="searchQuery" 
-            type="text" 
-            placeholder="搜索文件名或路径..." 
-            class="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
+            <span>{{ cat.label }}</span>
+            <span 
+              :class="activeCategory === cat.key ? 'bg-white/20 text-white' : 'bg-slate-200/80 text-slate-600'" 
+              class="px-1.5 py-0.2 rounded-full text-[10px]"
+            >
+              {{ getCategoryCount(cat.key) }}
+            </span>
+          </button>
         </div>
 
-        <select v-model="sortBy" class="bg-white border border-slate-200 text-xs rounded-xl px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-700">
-          <option value="size_desc">按大小 (从大到小)</option>
-          <option value="size_asc">按大小 (从小到大)</option>
-          <option value="time_desc">按修改时间 (最新)</option>
-          <option value="name_asc">按名称 (A-Z)</option>
-        </select>
+        <!-- 重置所有筛选按钮 -->
+        <div v-if="activeFiltersCount > 0" class="flex items-center gap-2">
+          <button 
+            @click="resetFilters" 
+            class="px-3 py-1 text-xs bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl transition-colors flex items-center gap-1 font-medium"
+          >
+            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+            <span>{{ t('resetFilters') }}</span>
+            <span class="px-1.5 py-0.2 rounded-full bg-rose-200/60 text-rose-800 text-[10px]">{{ activeFiltersCount }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 维度2: 多维度精细检索区 (文件名 / 路径目录 / 所在目录下拉 / 后缀下拉 / 排序) -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 items-center">
+        <!-- 文件名搜索输入框 -->
+        <div class="lg:col-span-3 relative">
+          <span class="absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400">
+            <i data-lucide="file-text" class="w-4 h-4"></i>
+          </span>
+          <input 
+            v-model="fileNameQuery" 
+            type="text" 
+            :placeholder="t('filterFileNamePlaceholder')" 
+            class="w-full pl-8 pr-7 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <button v-if="fileNameQuery" @click="fileNameQuery = ''" class="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600">
+            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+
+        <!-- 路径 / 目录搜索输入框 -->
+        <div class="lg:col-span-3 relative">
+          <span class="absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400">
+            <i data-lucide="folder-search" class="w-4 h-4"></i>
+          </span>
+          <input 
+            v-model="pathQuery" 
+            type="text" 
+            :placeholder="t('filterPathPlaceholder')" 
+            class="w-full pl-8 pr-7 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <button v-if="pathQuery" @click="pathQuery = ''" class="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600">
+            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+
+        <!-- 所在父目录筛选下拉 -->
+        <div class="lg:col-span-2">
+          <select 
+            v-model="selectedFolder" 
+            class="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl px-2.5 py-2 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-700 truncate"
+          >
+            <option value="all">{{ t('filterAllFolders') }} ({{ availableFolders.length }})</option>
+            <option v-for="f in availableFolders" :key="f.folder" :value="f.folder">
+              📁 {{ getShortFolder(f.folder) }} ({{ f.count }})
+            </option>
+          </select>
+        </div>
+
+        <!-- 文件后缀扩展名下拉 -->
+        <div class="lg:col-span-2">
+          <select 
+            v-model="selectedExt" 
+            class="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl px-2.5 py-2 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-700 truncate"
+          >
+            <option value="all">{{ t('filterAllExts') }} ({{ availableExtensions.length }})</option>
+            <option v-for="e in availableExtensions" :key="e.ext" :value="e.ext">
+              🏷️ {{ e.ext.toUpperCase() }} ({{ e.count }})
+            </option>
+          </select>
+        </div>
+
+        <!-- 排序方式 -->
+        <div class="lg:col-span-2">
+          <select 
+            v-model="sortBy" 
+            class="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl px-2.5 py-2 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-700"
+          >
+            <option value="size_desc">{{ t('sortSizeDesc') }}</option>
+            <option value="size_asc">{{ t('sortSizeAsc') }}</option>
+            <option value="time_desc">{{ t('sortTimeDesc') }}</option>
+            <option value="name_asc">{{ t('sortNameAsc') }}</option>
+          </select>
+        </div>
       </div>
     </section>
 
@@ -262,11 +361,16 @@
           <i data-lucide="folder-search" class="w-full h-full"></i>
         </div>
         <h3 class="text-sm font-medium text-slate-700">
-          <span v-if="scanStatus.is_scanning">正在扫描寻找大于 {{ scanConfig.min_size_mb }}MB 的文件...</span>
-          <span v-else-if="scanStatus.results.length === 0">未找到符合大小条件的大文件，可尝试调小阈值或修改扫描路径</span>
-          <span v-else>当前筛选条件下无匹配文件</span>
+          <span v-if="scanStatus.is_scanning">{{ t('emptyScanning', { size: scanConfig.min_size_mb }) }}</span>
+          <span v-else-if="scanStatus.results.length === 0">{{ t('emptyNoFound') }}</span>
+          <span v-else>{{ t('emptyFilter') }}</span>
         </h3>
-        <p class="text-xs text-slate-400 mt-1" v-if="!scanStatus.is_scanning">点击上方“开始扫描”开启全速检索</p>
+        <p class="text-xs text-slate-400 mt-1" v-if="!scanStatus.is_scanning">
+          <span v-if="activeFiltersCount > 0">
+            <button @click="resetFilters" class="text-indigo-600 hover:underline font-medium">{{ t('resetFilters') }}</button> 查看全部已扫描文件
+          </span>
+          <span v-else>{{ t('emptyHint') }}</span>
+        </p>
       </div>
 
       <!-- 结果表格 -->
@@ -282,11 +386,11 @@
                   class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
                 />
               </th>
-              <th scope="col" class="py-3 px-4 font-semibold">文件名与路径</th>
-              <th scope="col" class="py-3 px-4 font-semibold w-28 text-center">类型</th>
-              <th scope="col" class="py-3 px-4 font-semibold w-32 text-right">文件大小</th>
-              <th scope="col" class="py-3 px-4 font-semibold w-40 text-center">修改时间</th>
-              <th scope="col" class="py-3 px-4 font-semibold w-48 text-right">快捷操作</th>
+              <th scope="col" class="py-3 px-4 font-semibold">{{ t('colFileName') }}</th>
+              <th scope="col" class="py-3 px-4 font-semibold w-28 text-center">{{ t('colType') }}</th>
+              <th scope="col" class="py-3 px-4 font-semibold w-32 text-right">{{ t('colSize') }}</th>
+              <th scope="col" class="py-3 px-4 font-semibold w-40 text-center">{{ t('colTime') }}</th>
+              <th scope="col" class="py-3 px-4 font-semibold w-48 text-right">{{ t('colActions') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
@@ -318,7 +422,7 @@
                     </div>
                     <div class="text-xs text-slate-400 font-mono break-all mt-0.5 flex items-center gap-1.5">
                       <span class="truncate" :title="item.path">{{ item.path }}</span>
-                      <button @click="copyPath(item.path)" title="复制完整路径" class="text-slate-400 hover:text-slate-600">
+                      <button @click="copyPath(item.path)" :title="t('copyPathTitle')" class="text-slate-400 hover:text-slate-600">
                         <i data-lucide="copy" class="w-3.5 h-3.5"></i>
                       </button>
                     </div>
@@ -350,27 +454,27 @@
                 <!-- 在访达中定位 -->
                 <button 
                   @click="revealInFinder(item.path)" 
-                  title="在 Mac 访达中查看定位" 
+                  :title="t('btnFinder')" 
                   class="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors inline-flex items-center gap-1 text-xs"
                 >
                   <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-                  <span>访达</span>
+                  <span>{{ t('btnFinder') }}</span>
                 </button>
 
                 <!-- 移入废纸篓 -->
                 <button 
                   @click="confirmSingleDelete(item, false)" 
-                  title="安全移动到废纸篓" 
+                  :title="t('btnTrash')" 
                   class="p-1.5 text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors inline-flex items-center gap-1 text-xs font-medium"
                 >
                   <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                  <span>废纸篓</span>
+                  <span>{{ t('btnTrash') }}</span>
                 </button>
 
                 <!-- 永久彻底删除 -->
                 <button 
                   @click="confirmSingleDelete(item, true)" 
-                  title="彻底删除 (不可恢复)" 
+                  :title="t('btnPermanent')" 
                   class="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors inline-flex items-center text-xs"
                 >
                   <i data-lucide="x-circle" class="w-3.5 h-3.5"></i>
@@ -385,15 +489,19 @@
     <!-- 底部悬浮批量操作栏 -->
     <div 
       v-if="selectedPaths.size > 0" 
-      class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 backdrop-blur-md text-white px-6 py-3.5 rounded-2xl shadow-2xl border border-slate-700/50 flex items-center gap-6"
+      class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 backdrop-blur-md text-white px-6 py-3.5 rounded-2xl shadow-2xl border border-slate-700/50 flex flex-wrap items-center justify-center gap-6"
     >
       <div class="flex items-center gap-3">
         <div class="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-pulse"></div>
-        <span class="text-sm font-medium">已选择 <strong class="text-indigo-300 font-bold">{{ selectedPaths.size }}</strong> 项</span>
-        <span class="text-xs text-slate-400">预计可释放: <strong class="text-emerald-400 font-semibold">{{ selectedSizeFormatted }}</strong></span>
+        <span class="text-sm font-medium">
+          {{ t('selectedItems') }} <strong class="text-indigo-300 font-bold">{{ selectedPaths.size }}</strong> {{ t('itemsUnit') }}
+        </span>
+        <span class="text-xs text-slate-400">
+          {{ t('estimatedFreed') }} <strong class="text-emerald-400 font-semibold">{{ selectedSizeFormatted }}</strong>
+        </span>
       </div>
 
-      <div class="h-4 w-px bg-slate-700"></div>
+      <div class="h-4 w-px bg-slate-700 hidden sm:block"></div>
 
       <div class="flex items-center gap-2">
         <button 
@@ -401,7 +509,7 @@
           class="px-4 py-2 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-900 font-semibold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5"
         >
           <i data-lucide="trash-2" class="w-4 h-4"></i>
-          移到废纸篓 (推荐安全)
+          <span>{{ t('batchTrash') }}</span>
         </button>
 
         <button 
@@ -409,14 +517,14 @@
           class="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-medium text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5"
         >
           <i data-lucide="alert-triangle" class="w-4 h-4"></i>
-          彻底永久删除
+          <span>{{ t('batchPermanent') }}</span>
         </button>
 
         <button 
           @click="selectedPaths.clear()" 
           class="px-3 py-2 text-xs text-slate-400 hover:text-white transition-colors"
         >
-          取消勾选
+          {{ t('deselectAll') }}
         </button>
       </div>
     </div>
@@ -430,10 +538,10 @@
           </div>
           <div>
             <h3 class="text-lg font-bold text-slate-900">
-              {{ deleteModal.permanent ? '确认彻底永久删除？' : '确认移至废纸篓？' }}
+              {{ deleteModal.permanent ? t('modalPermanentTitle') : t('modalTrashTitle') }}
             </h3>
             <p class="text-xs text-slate-500">
-              {{ deleteModal.permanent ? '文件将被永久抹除，无法从废纸篓撤回！' : '文件将移动到 Mac 系统废纸篓，如需恢复可在废纸篓还原。' }}
+              {{ deleteModal.permanent ? t('modalPermanentDesc') : t('modalTrashDesc') }}
             </p>
           </div>
         </div>
@@ -441,14 +549,14 @@
         <!-- 待删除项目清单摘要 -->
         <div class="bg-slate-50 rounded-xl p-3 border border-slate-200 max-h-48 overflow-y-auto mb-4 text-xs space-y-1.5">
           <div class="flex justify-between font-semibold text-slate-700 border-b border-slate-200 pb-1 mb-1">
-            <span>共 {{ deleteModal.items.length }} 个文件</span>
-            <span class="text-emerald-600 font-bold">总大小: {{ deleteModal.totalSizeFormatted }}</span>
+            <span>{{ t('modalTotalItems', { count: deleteModal.items.length }) }}</span>
+            <span class="text-emerald-600 font-bold">{{ t('modalTotalSize') }} {{ deleteModal.totalSizeFormatted }}</span>
           </div>
           <div v-for="item in deleteModal.items.slice(0, 5)" :key="item.path" class="truncate text-slate-600">
             • {{ item.name }} ({{ item.size_formatted }})
           </div>
           <div v-if="deleteModal.items.length > 5" class="text-slate-400 italic">
-            ... 以及其他 {{ deleteModal.items.length - 5 }} 个文件
+            {{ t('modalMoreItems', { count: deleteModal.items.length - 5 }) }}
           </div>
         </div>
 
@@ -458,7 +566,7 @@
             :disabled="deleteModal.loading"
             class="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
           >
-            取消
+            {{ t('modalCancel') }}
           </button>
           <button 
             @click="executeDelete" 
@@ -467,15 +575,15 @@
             class="px-5 py-2 text-xs font-bold text-white rounded-xl shadow-md transition-all flex items-center gap-1.5"
           >
             <i v-if="deleteModal.loading" data-lucide="loader" class="w-4 h-4 animate-spin"></i>
-            <span>{{ deleteModal.loading ? '处理中...' : '确定执行' }}</span>
+            <span>{{ deleteModal.loading ? t('modalProcessing') : t('modalConfirm') }}</span>
           </button>
         </div>
       </div>
     </div>
 
-    <!-- 关于项目模态弹窗 -->
+    <!-- 关于项目模态弹窗 (支持 中/英/日 切换与完整多语言介绍) -->
     <div v-if="aboutModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-      <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in duration-200">
+      <div class="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in duration-200">
         <div class="flex items-start justify-between pb-4 border-b border-slate-100">
           <div class="flex items-center gap-3">
             <div class="p-2.5 bg-indigo-600 text-white rounded-xl shadow-md shadow-indigo-100 flex items-center justify-center">
@@ -483,10 +591,10 @@
             </div>
             <div>
               <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
-                <span>Mac 大文件清理助手</span>
+                <span>{{ t('aboutTitle') }}</span>
                 <span class="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">v1.2.0</span>
               </h3>
-              <p class="text-xs text-slate-500">Mac Disk Cleaner · 智能磁盘与模型清理中枢</p>
+              <p class="text-xs text-slate-500">{{ t('aboutTagline') }}</p>
             </div>
           </div>
           <button @click="aboutModalOpen = false" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">
@@ -494,40 +602,65 @@
           </button>
         </div>
 
-        <div class="py-4 space-y-3.5 text-xs text-slate-600 leading-relaxed">
+        <!-- 弹窗内部语言切换选项卡 -->
+        <div class="flex items-center gap-1 mt-3.5 mb-2 bg-slate-100 p-1 rounded-xl w-fit text-xs">
+          <button 
+            @click="changeLang('zh')" 
+            :class="currentLang === 'zh' ? 'bg-white text-indigo-700 font-bold shadow-sm' : 'text-slate-600 hover:text-slate-900'"
+            class="px-2.5 py-1 rounded-lg transition-all"
+          >
+            🇨🇳 简体中文
+          </button>
+          <button 
+            @click="changeLang('en')" 
+            :class="currentLang === 'en' ? 'bg-white text-indigo-700 font-bold shadow-sm' : 'text-slate-600 hover:text-slate-900'"
+            class="px-2.5 py-1 rounded-lg transition-all"
+          >
+            🇺🇸 English
+          </button>
+          <button 
+            @click="changeLang('ja')" 
+            :class="currentLang === 'ja' ? 'bg-white text-indigo-700 font-bold shadow-sm' : 'text-slate-600 hover:text-slate-900'"
+            class="px-2.5 py-1 rounded-lg transition-all"
+          >
+            🇯🇵 日本語
+          </button>
+        </div>
+
+        <div class="py-2 space-y-3.5 text-xs text-slate-600 leading-relaxed max-h-[60vh] overflow-y-auto pr-1">
           <p>
-            <strong>Mac 大文件清理助手</strong> 是一款专为 macOS 系统量身打造的磁盘大文件排查、大模型权重清理与应用缓存治理工具。支持优雅的 Web 可视化面板，还原生集成了标准 <strong>MCP (Model Context Protocol)</strong> 协议。
+            {{ t('aboutDesc') }}
           </p>
 
           <div class="bg-slate-50 rounded-xl p-3.5 border border-slate-200 space-y-2">
             <div class="font-semibold text-slate-800 flex items-center gap-1.5">
               <i data-lucide="sparkles" class="w-4 h-4 text-indigo-600"></i>
-              <span>核心特性与技术亮点</span>
+              <span>{{ t('aboutFeaturesTitle') }}</span>
             </div>
             <ul class="space-y-1.5 list-disc list-inside text-slate-600">
-              <li><strong>高速智能跳过微型依赖</strong>：全盘扫描自动跳过 node_modules、.git、.nvm 等数百万极碎文件，极速定位大文件。</li>
-              <li><strong>结果持久化与免丢缓存</strong>：扫描数据与筛选配置自动在服务端与本地双重缓存，刷新页面不丢失。</li>
-              <li><strong>废纸篓优先安全保护</strong>：日常删除对接 macOS 系统废纸篓机制，随时可一键放回原处，核心系统路径拦截防误删。</li>
-              <li><strong>大模型原生 MCP 支持</strong>：提供 6 大标准 MCP 工具，无缝接入 Claude、Cursor、Antigravity，用自然语言对话管理磁盘。</li>
+              <li>{{ t('aboutF1') }}</li>
+              <li>{{ t('aboutF2') }}</li>
+              <li>{{ t('aboutF3') }}</li>
+              <li>{{ t('aboutF4') }}</li>
             </ul>
           </div>
 
           <div class="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
             <div class="flex items-center gap-2 text-slate-500">
-              <span>开源许可: <strong>MIT License</strong></span>
+              <span>{{ t('aboutLicense') }} <strong>MIT License</strong></span>
               <span>·</span>
-              <span>作者: <strong>minLaoGe</strong></span>
+              <span>{{ t('aboutAuthor') }} <strong>minLaoGe</strong></span>
             </div>
             <a href="https://github.com/minLaoGe/mac-disk-cleaner" target="_blank" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg flex items-center gap-1.5 transition-colors font-medium">
               <i data-lucide="github" class="w-4 h-4"></i>
-              <span>GitHub 仓库</span>
+              <span>{{ t('aboutRepo') }}</span>
             </a>
           </div>
         </div>
 
-        <div class="flex justify-end pt-2">
+        <div class="flex justify-end pt-3 border-t border-slate-100">
           <button @click="aboutModalOpen = false" class="px-5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors">
-            关闭
+            {{ t('aboutClose') }}
           </button>
         </div>
       </div>
@@ -548,10 +681,320 @@
   <script>
     const { createApp, ref, reactive, computed, watch, onMounted, nextTick } = Vue;
 
+    const messages = {
+      zh: {
+        appTitle: 'Mac 大文件清理助手',
+        appSubtitle: '快速扫描磁盘大文件、模型权重与缓存，安全清理释放空间',
+        about: '关于项目',
+        diskSpace: '系统磁盘空间',
+        diskUsed: '已用',
+        diskFree: '剩余可用',
+        diskTotal: '总容量',
+        refreshDisk: '刷新磁盘信息',
+        scanPathLabel: '扫描目录路径',
+        scanPathPlaceholder: '例如: /Users/username/Downloads 或 ~',
+        startScan: '开始扫描',
+        stopScan: '停止扫描',
+        quickPresets: '快捷预设:',
+        minSizeLabel: '最小文件大小阈值 (MB)',
+        customSize: '自定义',
+        scanHidden: '扫描隐藏目录 (.cache/.ollama等)',
+        statusScanning: '正在扫描目录...',
+        statusCached: '已恢复上次扫描结果',
+        statusCachedAt: '缓存于',
+        statusCompleted: '扫描已完成',
+        targetLabel: '扫描目标:',
+        scannedFiles: '已检文件:',
+        scannedDirs: '已扫描目录:',
+        elapsed: '耗时:',
+        foundFiles: '发现大文件:',
+        totalSize: '共',
+        clearCache: '清空缓存',
+        clearCacheConfirm: '确定要清空已保存的扫描结果缓存吗？',
+        allFiles: '全部文件',
+        catModel: '🧠 AI与模型权重',
+        catVideo: '🎬 视频媒体',
+        catArchive: '📦 压缩包与镜像',
+        catAudio: '🎵 音频',
+        catImage: '🖼️ 图片设计稿',
+        catDocument: '📄 文档与PDF',
+        catOther: '📁 其他文件',
+        filterFileNamePlaceholder: '搜索文件名...',
+        filterPathPlaceholder: '搜索路径 / 所在目录...',
+        filterAllFolders: '全部所在目录',
+        filterAllExts: '全部文件后缀',
+        resetFilters: '重置筛选',
+        sortSizeDesc: '按大小 (从大到小)',
+        sortSizeAsc: '按大小 (从小到大)',
+        sortTimeDesc: '按修改时间 (最新)',
+        sortNameAsc: '按名称 (A-Z)',
+        colFileName: '文件名与路径',
+        colType: '类型',
+        colSize: '文件大小',
+        colTime: '修改时间',
+        colActions: '快捷操作',
+        emptyScanning: '正在扫描寻找大于 {size}MB 的文件...',
+        emptyNoFound: '未找到符合大小条件的大文件，可尝试调小阈值或修改扫描路径',
+        emptyFilter: '当前筛选条件下无匹配文件',
+        emptyHint: '点击上方“开始扫描”开启全速检索',
+        btnFinder: '访达',
+        btnTrash: '废纸篓',
+        btnPermanent: '彻底删除',
+        copyPathTitle: '复制完整路径',
+        copiedPath: '已复制完整路径到剪贴板',
+        finderRevealed: '已在访达 (Finder) 中高亮定位',
+        selectedItems: '已选择',
+        itemsUnit: '项',
+        estimatedFreed: '预计可释放:',
+        batchTrash: '移到废纸篓 (推荐安全)',
+        batchPermanent: '彻底永久删除',
+        deselectAll: '取消勾选',
+        modalTrashTitle: '确认移至废纸篓？',
+        modalPermanentTitle: '确认彻底永久删除？',
+        modalTrashDesc: '文件将移动到 Mac 系统废纸篓，如需恢复可在废纸篓还原。',
+        modalPermanentDesc: '文件将被永久抹除，无法从废纸篓撤回！',
+        modalTotalItems: '共 {count} 个文件',
+        modalTotalSize: '总大小:',
+        modalMoreItems: '... 以及其他 {count} 个文件',
+        modalCancel: '取消',
+        modalConfirm: '确定执行',
+        modalProcessing: '处理中...',
+        aboutTitle: 'Mac 大文件清理助手',
+        aboutTagline: 'Mac Disk Cleaner · 智能磁盘与模型清理中枢',
+        aboutDesc: 'Mac 大文件清理助手 是一款专为 macOS 系统量身打造的磁盘大文件排查、大模型权重清理与应用缓存治理工具。支持优雅的 Web 可视化面板，还原生集成了标准 MCP (Model Context Protocol) 协议。',
+        aboutFeaturesTitle: '核心特性与技术亮点',
+        aboutF1: '高速智能跳过微型依赖：全盘扫描自动跳过 node_modules、.git、.nvm 等数百万极碎文件，极速定位大文件。',
+        aboutF2: '结果持久化与免丢缓存：扫描数据与筛选配置自动在服务端与本地双重缓存，刷新页面不丢失。',
+        aboutF3: '废纸篓优先安全保护：日常删除对接 macOS 系统废纸篓机制，随时可一键放回原处，核心系统路径拦截防误删。',
+        aboutF4: '大模型原生 MCP 支持：提供 6 大标准 MCP 工具，无缝接入 Claude、Cursor、Antigravity，用自然语言对话管理磁盘。',
+        aboutLicense: '开源许可:',
+        aboutAuthor: '作者:',
+        aboutRepo: 'GitHub 仓库',
+        aboutClose: '关闭',
+        presetHome: '个人主目录 (~)',
+        presetDownloads: '下载 (Downloads)',
+        presetAiCache: 'AI模型缓存 (~/.cache)',
+        presetOllama: 'Ollama 模型 (~/.ollama)',
+        presetDesktop: '桌面 (Desktop)',
+        presetWechat: '微信媒体缓存'
+      },
+      en: {
+        appTitle: 'Mac Disk Cleaner',
+        appSubtitle: 'Quickly scan large files, AI model weights & caches, safely clean and reclaim disk space',
+        about: 'About',
+        diskSpace: 'System Disk Space',
+        diskUsed: 'Used',
+        diskFree: 'Free',
+        diskTotal: 'Total',
+        refreshDisk: 'Refresh disk info',
+        scanPathLabel: 'Scan Directory Path',
+        scanPathPlaceholder: 'e.g. /Users/username/Downloads or ~',
+        startScan: 'Start Scan',
+        stopScan: 'Stop Scan',
+        quickPresets: 'Presets:',
+        minSizeLabel: 'Min File Size (MB)',
+        customSize: 'Custom',
+        scanHidden: 'Scan hidden folders (.cache, .ollama, etc.)',
+        statusScanning: 'Scanning directory...',
+        statusCached: 'Restored from previous scan',
+        statusCachedAt: 'Cached at',
+        statusCompleted: 'Scan Completed',
+        targetLabel: 'Target:',
+        scannedFiles: 'Scanned files:',
+        scannedDirs: 'Scanned dirs:',
+        elapsed: 'Elapsed:',
+        foundFiles: 'Large files found:',
+        totalSize: 'Total',
+        clearCache: 'Clear Cache',
+        clearCacheConfirm: 'Are you sure you want to clear the saved scan cache?',
+        allFiles: 'All Files',
+        catModel: '🧠 AI & Models',
+        catVideo: '🎬 Videos',
+        catArchive: '📦 Archives & Disk Images',
+        catAudio: '🎵 Audio',
+        catImage: '🖼️ Images',
+        catDocument: '📄 Documents & PDF',
+        catOther: '📁 Others',
+        filterFileNamePlaceholder: 'Filter by file name...',
+        filterPathPlaceholder: 'Filter by path / directory...',
+        filterAllFolders: 'All Directories',
+        filterAllExts: 'All Extensions',
+        resetFilters: 'Reset Filters',
+        sortSizeDesc: 'Size (Largest first)',
+        sortSizeAsc: 'Size (Smallest first)',
+        sortTimeDesc: 'Modified time (Newest)',
+        sortNameAsc: 'Name (A-Z)',
+        colFileName: 'File Name & Path',
+        colType: 'Type',
+        colSize: 'Size',
+        colTime: 'Modified',
+        colActions: 'Actions',
+        emptyScanning: 'Scanning for files larger than {size}MB...',
+        emptyNoFound: 'No large files found. Try lowering the size threshold or changing the path.',
+        emptyFilter: 'No files match the current filter criteria.',
+        emptyHint: 'Click "Start Scan" above to run a full-speed inspection',
+        btnFinder: 'Finder',
+        btnTrash: 'Trash',
+        btnPermanent: 'Delete',
+        copyPathTitle: 'Copy full path',
+        copiedPath: 'Full path copied to clipboard',
+        finderRevealed: 'Revealed and highlighted in Finder',
+        selectedItems: 'Selected',
+        itemsUnit: 'items',
+        estimatedFreed: 'Est. reclaimable:',
+        batchTrash: 'Move to Trash (Recommended)',
+        batchPermanent: 'Permanently Delete',
+        deselectAll: 'Deselect',
+        modalTrashTitle: 'Move to Trash?',
+        modalPermanentTitle: 'Permanently Delete?',
+        modalTrashDesc: 'Files will be moved to macOS Trash and can be restored anytime if needed.',
+        modalPermanentDesc: 'Files will be wiped permanently from disk and CANNOT be recovered!',
+        modalTotalItems: '{count} file(s) in total',
+        modalTotalSize: 'Total Size:',
+        modalMoreItems: '... and {count} other files',
+        modalCancel: 'Cancel',
+        modalConfirm: 'Confirm Execution',
+        modalProcessing: 'Processing...',
+        aboutTitle: 'Mac Disk Cleaner',
+        aboutTagline: 'Mac Disk Cleaner · Intelligent Disk & AI Model Governance Hub',
+        aboutDesc: 'Mac Disk Cleaner is a modern disk inspection, AI model weight cleanup, and cache management tool crafted specifically for macOS. It offers a beautiful Web dashboard and natively integrates the Model Context Protocol (MCP).',
+        aboutFeaturesTitle: 'Key Features & Technical Highlights',
+        aboutF1: 'Ultra-fast directory traversal: Automatically skips fragmented trees like node_modules, .git, and .nvm with millions of tiny files.',
+        aboutF2: 'Scan persistence & cache: Scan results and preferences are dual-cached on server and client, surviving page refreshes.',
+        aboutF3: 'macOS Trash-first safety: Regular deletion integrates with macOS Trash for one-click restoration, with critical system path guardrails.',
+        aboutF4: 'Native AI MCP Protocol: Ships 6 standard MCP tools for seamless dialogue-driven disk management with Claude, Cursor, and Antigravity.',
+        aboutLicense: 'License:',
+        aboutAuthor: 'Author:',
+        aboutRepo: 'GitHub Repo',
+        aboutClose: 'Close',
+        presetHome: 'Home (~)',
+        presetDownloads: 'Downloads',
+        presetAiCache: 'AI Model Cache (~/.cache)',
+        presetOllama: 'Ollama Models (~/.ollama)',
+        presetDesktop: 'Desktop',
+        presetWechat: 'WeChat Media Cache'
+      },
+      ja: {
+        appTitle: 'Mac 大容量ファイルクリーナー',
+        appSubtitle: 'ディスクの大容量ファイル、AIモデルの重み、キャッシュを高速スキャンし、安全に空き容量を確保',
+        about: 'プロジェクト情報',
+        diskSpace: 'システムディスク容量',
+        diskUsed: '使用中',
+        diskFree: '空き容量',
+        diskTotal: '全容量',
+        refreshDisk: 'ディスク情報を更新',
+        scanPathLabel: 'スキャン対象ディレクトリ',
+        scanPathPlaceholder: '例: /Users/username/Downloads または ~',
+        startScan: 'スキャン開始',
+        stopScan: 'スキャン停止',
+        quickPresets: 'プリセット:',
+        minSizeLabel: '最小ファイルサイズ閾値 (MB)',
+        customSize: 'カスタム',
+        scanHidden: '隠しフォルダを含める (.cache/.ollama等)',
+        statusScanning: 'ディレクトリをスキャン中...',
+        statusCached: '前回のスキャン結果を復元しました',
+        statusCachedAt: 'キャッシュ日時:',
+        statusCompleted: 'スキャン完了',
+        targetLabel: 'スキャン対象:',
+        scannedFiles: '検査済みファイル:',
+        scannedDirs: '検査済みディレクトリ:',
+        elapsed: '所要時間:',
+        foundFiles: '検出ファイル数:',
+        totalSize: '合計',
+        clearCache: 'キャッシュ消去',
+        clearCacheConfirm: '保存されているスキャンキャッシュを削除しますか？',
+        allFiles: 'すべてのファイル',
+        catModel: '🧠 AI・モデル重み',
+        catVideo: '🎬 動画メディア',
+        catArchive: '📦 アーカイブ・イメージ',
+        catAudio: '🎵 音楽・音声',
+        catImage: '🖼️ 画像・デザイン',
+        catDocument: '📄 ドキュメント・PDF',
+        catOther: '📁 その他',
+        filterFileNamePlaceholder: 'ファイル名で絞り込み...',
+        filterPathPlaceholder: 'パス・ディレクトリで絞り込み...',
+        filterAllFolders: 'すべてのディレクトリ',
+        filterAllExts: 'すべての拡張子',
+        resetFilters: 'フィルター解除',
+        sortSizeDesc: 'サイズ順 (大きい順)',
+        sortSizeAsc: 'サイズ順 (小さい順)',
+        sortTimeDesc: '更新日時 (新しい順)',
+        sortNameAsc: '名前順 (A-Z)',
+        colFileName: 'ファイル名とパス',
+        colType: '種別',
+        colSize: 'サイズ',
+        colTime: '更新日時',
+        colActions: 'アクション',
+        emptyScanning: '{size}MB 以上の大容量ファイルをスキャン中...',
+        emptyNoFound: '条件に一致する大容量ファイルは見つかりませんでした。閾値を下げるかパスを変更してください。',
+        emptyFilter: '現在のフィルター条件に一致するファイルはありません',
+        emptyHint: '上の「スキャン開始」ボタンを押して高速検査を開始',
+        btnFinder: 'Finder',
+        btnTrash: 'ゴミ箱',
+        btnPermanent: '完全削除',
+        copyPathTitle: 'フルパスをコピー',
+        copiedPath: 'フルパスをクリップボードにコピーしました',
+        finderRevealed: 'Finderでハイライト表示しました',
+        selectedItems: '選択中',
+        itemsUnit: '件',
+        estimatedFreed: '解放見込み容量:',
+        batchTrash: 'ゴミ箱に移動 (推奨・安全)',
+        batchPermanent: '完全に削除',
+        deselectAll: '選択解除',
+        modalTrashTitle: 'ゴミ箱に移動しますか？',
+        modalPermanentTitle: '完全に削除しますか？',
+        modalTrashDesc: 'ファイルはmacOSのゴミ箱に移動します。必要に応じてゴミ箱から戻すことができます。',
+        modalPermanentDesc: 'ファイルはディスクから完全に消去され、元に戻すことはできません！',
+        modalTotalItems: '合計 {count} 件のファイル',
+        modalTotalSize: '合計サイズ:',
+        modalMoreItems: '... 他 {count} 件のファイル',
+        modalCancel: 'キャンセル',
+        modalConfirm: '実行する',
+        modalProcessing: '処理中...',
+        aboutTitle: 'Mac 大容量ファイルクリーナー',
+        aboutTagline: 'Mac Disk Cleaner · インテリジェントなディスク＆AIモデル管理ハブ',
+        aboutDesc: 'Mac 大容量ファイルクリーナーは、macOS向けに設計された大容量ファイル検出、AIモデル重みクリーンアップ、アプリケーションキャッシュ管理ツールです。美しいWebダッシュボードを備え、標準MCP（Model Context Protocol）も標準サポートしています。',
+        aboutFeaturesTitle: '主な特長と技術仕様',
+        aboutF1: '超高速スマート走査：node_modules、.git、.nvm などの数百万の極小ファイル群を自動スキップし、大容量ファイルを即座に特定。',
+        aboutF2: 'スキャン結果の永続化：スキャン結果と設定をサーバーとローカル双方にキャッシュし、ページ更新でも失われません。',
+        aboutF3: 'ゴミ箱優先の安全設計：macOSシステムゴミ箱と連携し、誤削除時はいつでも復元可能。システム基盤パスの削除をブロック。',
+        aboutF4: 'ネイティブAI MCPプロトコル：Claude、Cursor、AntigravityなどのAIエージェントと自然言語で対話しながらディスクを整理可能。',
+        aboutLicense: 'ライセンス:',
+        aboutAuthor: '作者:',
+        aboutRepo: 'GitHub リポジトリ',
+        aboutClose: '閉じる',
+        presetHome: 'ホーム (~)',
+        presetDownloads: 'ダウンロード',
+        presetAiCache: 'AIモデルキャッシュ (~/.cache)',
+        presetOllama: 'Ollama モデル (~/.ollama)',
+        presetDesktop: 'デスクトップ',
+        presetWechat: 'WeChat キャッシュ'
+      }
+    };
+
     createApp({
       setup() {
         const systemInfo = ref({});
         const isRefreshingDisk = ref(false);
+
+        // 语言状态管理 (支持 localStorage 持久化)
+        const currentLang = ref(localStorage.getItem('mac_cleaner_lang') || 'zh');
+        const changeLang = (lang) => {
+          currentLang.value = lang;
+          try {
+            localStorage.setItem('mac_cleaner_lang', lang);
+          } catch (e) {}
+          refreshIcons();
+        };
+
+        const t = (key, params = {}) => {
+          const dict = messages[currentLang.value] || messages.zh;
+          let text = dict[key] || messages.zh[key] || key;
+          for (const [k, v] of Object.entries(params)) {
+            text = text.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
+          }
+          return text;
+        };
 
         const scanConfig = reactive({
           path: '/Users/minfengyu/files/Antigravty',
@@ -590,8 +1033,12 @@
           results: []
         });
 
+        // 筛选与搜索状态
         const activeCategory = ref('all');
-        const searchQuery = ref('');
+        const fileNameQuery = ref('');
+        const pathQuery = ref('');
+        const selectedFolder = ref('all');
+        const selectedExt = ref('all');
         const sortBy = ref('size_desc');
         const selectedPaths = ref(new Set());
 
@@ -615,16 +1062,143 @@
           message: ''
         });
 
-        const categories = [
-          { key: 'all', label: '全部文件' },
-          { key: 'model', label: '🧠 AI与模型权重' },
-          { key: 'video', label: '🎬 视频媒体' },
-          { key: 'archive', label: '📦 压缩包与镜像' },
-          { key: 'audio', label: '🎵 音频' },
-          { key: 'image', label: '🖼️ 图片设计稿' },
-          { key: 'document', label: '📄 文档与PDF' },
-          { key: 'other', label: '📁 其他文件' }
-        ];
+        const categories = computed(() => [
+          { key: 'all', label: t('allFiles') },
+          { key: 'model', label: t('catModel') },
+          { key: 'video', label: t('catVideo') },
+          { key: 'archive', label: t('catArchive') },
+          { key: 'audio', label: t('catAudio') },
+          { key: 'image', label: t('catImage') },
+          { key: 'document', label: t('catDocument') },
+          { key: 'other', label: t('catOther') }
+        ]);
+
+        const getPresetName = (preset) => {
+          if (preset.path === '~') return t('presetHome');
+          if (preset.path === '~/Downloads') return t('presetDownloads');
+          if (preset.path === '~/.cache') return t('presetAiCache');
+          if (preset.path === '~/.ollama') return t('presetOllama');
+          if (preset.path === '~/Desktop') return t('presetDesktop');
+          if (preset.path && preset.path.includes('xinWeChat')) return t('presetWechat');
+          return preset.name;
+        };
+
+        const getShortFolder = (folderPath) => {
+          if (!folderPath) return '';
+          const home = systemInfo.value?.presets?.[0]?.expanded_path || '';
+          if (home && folderPath.startsWith(home)) {
+            return '~' + folderPath.slice(home.length);
+          }
+          const parts = folderPath.split('/');
+          if (parts.length > 3) {
+            return '.../' + parts.slice(-2).join('/');
+          }
+          return folderPath;
+        };
+
+        // 动态从扫描结果中提取所在目录列表并统计
+        const availableFolders = computed(() => {
+          const map = new Map();
+          const items = scanStatus.results || [];
+          for (const item of items) {
+            if (!item.path) continue;
+            const parts = item.path.split('/');
+            parts.pop();
+            const dir = parts.join('/') || '/';
+            map.set(dir, (map.get(dir) || 0) + 1);
+          }
+          const list = [];
+          for (const [folder, count] of map.entries()) {
+            list.push({ folder, count });
+          }
+          list.sort((a, b) => b.count - a.count || a.folder.localeCompare(b.folder));
+          return list;
+        });
+
+        // 动态从扫描结果中提取扩展名列表并统计
+        const availableExtensions = computed(() => {
+          const map = new Map();
+          const items = scanStatus.results || [];
+          for (const item of items) {
+            const ext = item.ext ? item.ext.toLowerCase() : '(none)';
+            map.set(ext, (map.get(ext) || 0) + 1);
+          }
+          const list = [];
+          for (const [ext, count] of map.entries()) {
+            list.push({ ext, count });
+          }
+          list.sort((a, b) => b.count - a.count || a.ext.localeCompare(b.ext));
+          return list;
+        });
+
+        const activeFiltersCount = computed(() => {
+          let count = 0;
+          if (activeCategory.value !== 'all') count++;
+          if (fileNameQuery.value.trim()) count++;
+          if (pathQuery.value.trim()) count++;
+          if (selectedFolder.value !== 'all') count++;
+          if (selectedExt.value !== 'all') count++;
+          return count;
+        });
+
+        const resetFilters = () => {
+          activeCategory.value = 'all';
+          fileNameQuery.value = '';
+          pathQuery.value = '';
+          selectedFolder.value = 'all';
+          selectedExt.value = 'all';
+        };
+
+        // 综合多维度筛选逻辑 (分类 + 文件名 + 路径 + 所在目录 + 后缀 + 排序)
+        const filteredResults = computed(() => {
+          let list = scanStatus.results || [];
+
+          // 1. 分类筛选
+          if (activeCategory.value !== 'all') {
+            list = list.filter(item => item.category === activeCategory.value);
+          }
+
+          // 2. 文件名匹配 (不区分大小写)
+          if (fileNameQuery.value.trim()) {
+            const q = fileNameQuery.value.toLowerCase().trim();
+            list = list.filter(item => (item.name || '').toLowerCase().includes(q));
+          }
+
+          // 3. 完整路径匹配 (不区分大小写)
+          if (pathQuery.value.trim()) {
+            const q = pathQuery.value.toLowerCase().trim();
+            list = list.filter(item => (item.path || '').toLowerCase().includes(q));
+          }
+
+          // 4. 目录下拉匹配
+          if (selectedFolder.value !== 'all') {
+            list = list.filter(item => {
+              const parts = item.path.split('/');
+              parts.pop();
+              const dir = parts.join('/') || '/';
+              return dir === selectedFolder.value;
+            });
+          }
+
+          // 5. 后缀扩展名匹配
+          if (selectedExt.value !== 'all') {
+            list = list.filter(item => {
+              const ext = item.ext ? item.ext.toLowerCase() : '(none)';
+              return ext === selectedExt.value.toLowerCase();
+            });
+          }
+
+          // 6. 排序
+          list = [...list].sort((a, b) => {
+            if (sortBy.value === 'size_desc') return b.size - a.size;
+            if (sortBy.value === 'size_asc') return a.size - b.size;
+            if (sortBy.value === 'time_desc') return b.mtime - a.mtime;
+            if (sortBy.value === 'name_asc') return a.name.localeCompare(b.name);
+            return 0;
+          });
+
+          return list;
+        });
 
         const refreshIcons = () => {
           nextTick(() => {
@@ -683,7 +1257,7 @@
 
         const startScan = async () => {
           if (!scanConfig.path) {
-            showToast('请指定扫描路径', 'error');
+            showToast(t('scanPathLabel'), 'error');
             return;
           }
           selectedPaths.value.clear();
@@ -695,20 +1269,20 @@
             });
             const data = await res.json();
             if (!res.ok) {
-              showToast(data.detail || '启动扫描失败', 'error');
+              showToast(data.detail || 'Error starting scan', 'error');
               return;
             }
             scanStatus.is_scanning = true;
             pollScanStatus();
           } catch (e) {
-            showToast('请求失败: ' + e.message, 'error');
+            showToast('Request failed: ' + e.message, 'error');
           }
         };
 
         const stopScan = async () => {
           try {
             await fetch('/api/scan/stop', { method: 'POST' });
-            showToast('已发送停止请求');
+            showToast(currentLang.value === 'en' ? 'Stop request sent' : (currentLang.value === 'ja' ? '停止リクエストを送信しました' : '已发送停止请求'));
           } catch (e) {
             console.error(e);
           }
@@ -728,14 +1302,14 @@
               scanStatus.scanned_dirs_count = 0;
               scanStatus.elapsed_seconds = 0;
               selectedPaths.value.clear();
-              showToast('已成功清除历史扫描缓存');
+              showToast(currentLang.value === 'en' ? 'Scan cache cleared successfully' : (currentLang.value === 'ja' ? 'スキャンキャッシュを消去しました' : '已成功清除历史扫描缓存'));
               refreshIcons();
             } else {
               const err = await res.json();
-              showToast(err.detail || '清空缓存失败', 'error');
+              showToast(err.detail || 'Clear cache failed', 'error');
             }
           } catch (e) {
-            showToast('清空失败: ' + e.message, 'error');
+            showToast('Clear failed: ' + e.message, 'error');
           }
         };
 
@@ -747,9 +1321,9 @@
               body: JSON.stringify({ path })
             });
             if (res.ok) {
-              showToast('已在访达 (Finder) 中高亮定位');
+              showToast(t('finderRevealed'));
             } else {
-              showToast('定位失败', 'error');
+              showToast('Reveal failed', 'error');
             }
           } catch (e) {
             showToast(e.message, 'error');
@@ -758,32 +1332,8 @@
 
         const copyPath = (text) => {
           navigator.clipboard.writeText(text);
-          showToast('已复制完整路径到剪贴板');
+          showToast(t('copiedPath'));
         };
-
-        // 筛选逻辑
-        const filteredResults = computed(() => {
-          let list = scanStatus.results || [];
-
-          if (activeCategory.value !== 'all') {
-            list = list.filter(item => item.category === activeCategory.value);
-          }
-
-          if (searchQuery.value.trim()) {
-            const q = searchQuery.value.toLowerCase().trim();
-            list = list.filter(item => item.name.toLowerCase().includes(q) || item.path.toLowerCase().includes(q));
-          }
-
-          list = [...list].sort((a, b) => {
-            if (sortBy.value === 'size_desc') return b.size - a.size;
-            if (sortBy.value === 'size_asc') return a.size - b.size;
-            if (sortBy.value === 'time_desc') return b.mtime - a.mtime;
-            if (sortBy.value === 'name_asc') return a.name.localeCompare(b.name);
-            return 0;
-          });
-
-          return list;
-        });
 
         const getCategoryCount = (key) => {
           if (!scanStatus.results) return 0;
@@ -869,12 +1419,15 @@
             await fetchSystemInfo();
 
             if (data.errors && data.errors.length > 0) {
-              showToast(`部分完成: 成功删除 ${data.success_count} 个文件 (释放 ${data.freed_formatted})，${data.errors.length} 处错误`, 'error');
+              showToast(`Partial: ${data.success_count} deleted (${data.freed_formatted}), ${data.errors.length} errors`, 'error');
             } else {
-              showToast(`成功${deleteModal.permanent ? '彻底删除' : '移入废纸篓'} ${data.success_count} 个项目，释放 ${data.freed_formatted}！`);
+              const actionLabel = deleteModal.permanent 
+                ? (currentLang.value === 'en' ? 'permanently deleted' : (currentLang.value === 'ja' ? '完全に削除しました' : '彻底删除'))
+                : (currentLang.value === 'en' ? 'moved to Trash' : (currentLang.value === 'ja' ? 'ゴミ箱に移動しました' : '移入废纸篓'));
+              showToast(`${data.success_count} item(s) ${actionLabel}, freed ${data.freed_formatted}!`);
             }
           } catch (e) {
-            showToast('删除失败: ' + e.message, 'error');
+            showToast('Delete failed: ' + e.message, 'error');
           } finally {
             deleteModal.loading = false;
           }
@@ -910,17 +1463,29 @@
         });
 
         return {
+          currentLang,
+          changeLang,
+          t,
           systemInfo,
           isRefreshingDisk,
           scanConfig,
           scanStatus,
           activeCategory,
-          searchQuery,
+          fileNameQuery,
+          pathQuery,
+          selectedFolder,
+          selectedExt,
+          availableFolders,
+          availableExtensions,
+          activeFiltersCount,
+          resetFilters,
+          getShortFolder,
           sortBy,
           selectedPaths,
           deleteModal,
           toast,
           categories,
+          getPresetName,
           filteredResults,
           isAllSelected,
           selectedSizeFormatted,
