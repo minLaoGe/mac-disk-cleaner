@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "mac-disk-cleaner": {
+      "command": "/Users/minfengyu/.pyenv/versions/3.10.6/bin/python3",
+      "args": [
+        "/Users/minfengyu/files/Antigravty/cleaner_mcp_server.py"
+      ]
+    }
+  }
+}

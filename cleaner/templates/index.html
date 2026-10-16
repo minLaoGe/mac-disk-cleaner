@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mac 大文件清理助手 - Disk Cleaner</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Vue 3 -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <style>
+    [v-cloak] { display: none; }
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+  <div id="app" v-cloak class="max-w-7xl mx-auto px-4 py-8">
+    
+    <!-- 顶部 Header -->
+    <header class="flex flex-col md:flex-row md:items-center md:justify-between pb-6 border-b border-slate-200 gap-4">
+      <div>
+        <div class="flex items-center gap-3">
+          <div class="p-2.5 bg-indigo-600 text-white rounded-xl shadow-md shadow-indigo-100 flex items-center justify-center">
+            <i data-lucide="hard-drive" class="w-7 h-7"></i>
+          </div>
+          <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Mac 大文件清理助手</h1>
+            <p class="text-sm text-slate-500">快速扫描磁盘大文件、模型权重与缓存，安全清理释放空间</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 磁盘使用情况卡片 -->
+      <div v-if="systemInfo.disk" class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-6 min-w-[320px]">
+        <div class="flex-1">
+          <div class="flex justify-between items-center mb-1 text-xs">
+            <span class="font-medium text-slate-600">系统磁盘空间</span>
+            <span :class="systemInfo.disk.percent > 85 ? 'text-rose-600 font-bold' : 'text-slate-700 font-semibold'">
+              已用 {{ systemInfo.disk.percent }}%
+            </span>
+          </div>
+          <!-- 进度条 -->
+          <div class="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+            <div 
+              class="h-full rounded-full transition-all duration-500"
+              :class="systemInfo.disk.percent > 90 ? 'bg-rose-500' : (systemInfo.disk.percent > 75 ? 'bg-amber-500' : 'bg-emerald-500')"
+              :style="{ width: systemInfo.disk.percent + '%' }"
+            ></div>
+          </div>
+          <div class="flex justify-between items-center mt-1.5 text-xs text-slate-400">
+            <span>剩余可用: <strong class="text-emerald-600 font-medium">{{ systemInfo.disk.free_formatted }}</strong></span>
+            <span>总容量: {{ systemInfo.disk.total_formatted }}</span>
+          </div>
+        </div>
+        <button @click="fetchSystemInfo" title="刷新磁盘信息" class="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg transition-colors">
+          <i data-lucide="refresh-cw" class="w-4 h-4" :class="{'animate-spin': isRefreshingDisk}"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- 配置扫描控制面板 -->
+    <section class="mt-6 bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+      <div class="space-y-5">
+        <!-- 扫描目标路径 -->
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-2">扫描目录路径</label>
+          <div class="flex gap-2">
+            <div class="relative flex-1">
+              <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                <i data-lucide="folder" class="w-5 h-5"></i>
+              </span>
+              <input 
+                v-model="scanConfig.path" 
+                type="text" 
+                placeholder="例如: /Users/username/Downloads 或 ~" 
+                class="w-full pl-10 pr-4 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+              />
+            </div>
+            <button 
+              v-if="!scanStatus.is_scanning"
+              @click="startScan" 
+              class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium rounded-xl shadow-sm transition-all flex items-center gap-2"
+            >
+              <i data-lucide="search" class="w-4 h-4"></i>
+              开始扫描
+            </button>
+            <button 
+              v-else
+              @click="stopScan" 
+              class="px-6 py-2.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white text-sm font-medium rounded-xl shadow-sm transition-all flex items-center gap-2"
+            >
+              <i data-lucide="square" class="w-4 h-4"></i>
+              停止扫描
+            </button>
+          </div>
+
+          <!-- 常用路径快捷按钮 -->
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <span class="text-xs text-slate-400 mr-1">快捷预设:</span>
+            <button 
+              v-for="p in systemInfo.presets" 
+              :key="p.path"
+              @click="scanConfig.path = p.expanded_path"
+              :class="scanConfig.path === p.expanded_path ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-medium' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'"
+              class="px-2.5 py-1 text-xs border rounded-lg transition-colors flex items-center gap-1"
+            >
+              <span>{{ p.name }}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 扫描参数配置 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-2 border-t border-slate-100">
+          <!-- 最小文件大小阈值 -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-2">最小文件大小阈值 (MB)</label>
+            <div class="flex items-center gap-2">
+              <button 
+                v-for="size in [20, 50, 100, 500, 1024, 2048]" 
+                :key="size"
+                @click="scanConfig.min_size_mb = size"
+                :class="scanConfig.min_size_mb === size ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
+                class="px-2.5 py-1 text-xs rounded-lg font-medium transition-colors"
+              >
+                {{ size >= 1024 ? (size/1024) + 'G' : size + 'M' }}
+              </button>
+              <input 
+                v-model.number="scanConfig.min_size_mb" 
+                type="number" 
+                min="1"
+                class="w-20 px-2 py-1 text-xs text-center border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                placeholder="自定义"
+              />
+            </div>
+          </div>
+
+          <!-- 隐藏文件/深度设置 -->
+          <div class="flex items-center gap-6">
+            <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 select-none">
+              <input type="checkbox" v-model="scanConfig.include_hidden" class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
+              <span>扫描隐藏目录 (.cache/.ollama等)</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 扫描进度状态条 -->
+    <section v-if="scanStatus.is_scanning || scanStatus.scanned_files_count > 0" class="mt-4 bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <div v-if="scanStatus.is_scanning" class="animate-spin text-indigo-600">
+            <i data-lucide="loader" class="w-5 h-5"></i>
+          </div>
+          <div v-else class="text-emerald-500">
+            <i data-lucide="check-circle-2" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <div class="text-sm font-semibold text-slate-800">
+              <span v-if="scanStatus.is_scanning">正在扫描目录...</span>
+              <span v-else>扫描已完成</span>
+            </div>
+            <div class="text-xs text-slate-500 truncate max-w-xl" :title="scanStatus.current_dir">
+              当前位置: {{ scanStatus.current_dir || '就绪' }}
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-6 text-xs text-slate-600">
+          <div>已检文件: <strong class="text-slate-800">{{ scanStatus.scanned_files_count }}</strong></div>
+          <div>已扫描目录: <strong class="text-slate-800">{{ scanStatus.scanned_dirs_count }}</strong></div>
+          <div>耗时: <strong class="text-slate-800">{{ scanStatus.elapsed_seconds }}s</strong></div>
+          <div>发现大文件: <strong class="text-indigo-600 text-sm font-bold">{{ scanStatus.found_count }}</strong> 
+            (共 {{ scanStatus.total_found_size_formatted }})
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 筛选与搜索工具条 -->
+    <section v-if="scanStatus.results && scanStatus.results.length > 0" class="mt-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <!-- 类型过滤 -->
+      <div class="flex flex-wrap items-center gap-1.5">
+        <button 
+          v-for="cat in categories" 
+          :key="cat.key"
+          @click="activeCategory = cat.key"
+          :class="activeCategory === cat.key ? 'bg-indigo-600 text-white font-medium shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'"
+          class="px-3 py-1.5 text-xs rounded-xl transition-colors flex items-center gap-1"
+        >
+          <span>{{ cat.label }}</span>
+          <span 
+            :class="activeCategory === cat.key ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'" 
+            class="px-1.5 py-0.2 rounded-full text-[10px]"
+          >
+            {{ getCategoryCount(cat.key) }}
+          </span>
+        </button>
+      </div>
+
+      <!-- 搜索 & 排序 -->
+      <div class="flex items-center gap-2">
+        <div class="relative w-64">
+          <span class="absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400">
+            <i data-lucide="filter" class="w-4 h-4"></i>
+          </span>
+          <input 
+            v-model="searchQuery" 
+            type="text" 
+            placeholder="搜索文件名或路径..." 
+            class="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+
+        <select v-model="sortBy" class="bg-white border border-slate-200 text-xs rounded-xl px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-700">
+          <option value="size_desc">按大小 (从大到小)</option>
+          <option value="size_asc">按大小 (从小到大)</option>
+          <option value="time_desc">按修改时间 (最新)</option>
+          <option value="name_asc">按名称 (A-Z)</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- 大文件表格列表 -->
+    <section class="mt-4 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <!-- 空状态 -->
+      <div v-if="filteredResults.length === 0" class="py-16 text-center">
+        <div class="w-16 h-16 mx-auto mb-3 text-slate-300">
+          <i data-lucide="folder-search" class="w-full h-full"></i>
+        </div>
+        <h3 class="text-sm font-medium text-slate-700">
+          <span v-if="scanStatus.is_scanning">正在扫描寻找大于 {{ scanConfig.min_size_mb }}MB 的文件...</span>
+          <span v-else-if="scanStatus.results.length === 0">未找到符合大小条件的大文件，可尝试调小阈值或修改扫描路径</span>
+          <span v-else>当前筛选条件下无匹配文件</span>
+        </h3>
+        <p class="text-xs text-slate-400 mt-1" v-if="!scanStatus.is_scanning">点击上方“开始扫描”开启全速检索</p>
+      </div>
+
+      <!-- 结果表格 -->
+      <div v-else class="overflow-x-auto">
+        <table class="w-full text-left text-sm text-slate-600">
+          <thead class="bg-slate-50/80 text-xs text-slate-500 border-b border-slate-200">
+            <tr>
+              <th scope="col" class="py-3 px-4 w-10 text-center">
+                <input 
+                  type="checkbox" 
+                  :checked="isAllSelected" 
+                  @change="toggleSelectAll" 
+                  class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                />
+              </th>
+              <th scope="col" class="py-3 px-4 font-semibold">文件名与路径</th>
+              <th scope="col" class="py-3 px-4 font-semibold w-28 text-center">类型</th>
+              <th scope="col" class="py-3 px-4 font-semibold w-32 text-right">文件大小</th>
+              <th scope="col" class="py-3 px-4 font-semibold w-40 text-center">修改时间</th>
+              <th scope="col" class="py-3 px-4 font-semibold w-48 text-right">快捷操作</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <tr 
+              v-for="item in filteredResults" 
+              :key="item.path" 
+              class="hover:bg-indigo-50/40 transition-colors group"
+              :class="{'bg-indigo-50/60': selectedPaths.has(item.path)}"
+            >
+              <!-- 勾选框 -->
+              <td class="py-3 px-4 text-center">
+                <input 
+                  type="checkbox" 
+                  :checked="selectedPaths.has(item.path)" 
+                  @change="toggleSelect(item.path)" 
+                  class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                />
+              </td>
+
+              <!-- 文件名与完整路径 -->
+              <td class="py-3 px-4">
+                <div class="flex items-start gap-2.5">
+                  <div class="mt-0.5 text-slate-400 group-hover:text-indigo-600 transition-colors">
+                    <i :data-lucide="getIconForCategory(item.category)" class="w-5 h-5"></i>
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="font-semibold text-slate-800 text-sm break-all flex items-center gap-2">
+                      <span>{{ item.name }}</span>
+                    </div>
+                    <div class="text-xs text-slate-400 font-mono break-all mt-0.5 flex items-center gap-1.5">
+                      <span class="truncate" :title="item.path">{{ item.path }}</span>
+                      <button @click="copyPath(item.path)" title="复制完整路径" class="text-slate-400 hover:text-slate-600">
+                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </td>
+
+              <!-- 分类标签 -->
+              <td class="py-3 px-4 text-center">
+                <span :class="getCategoryBadgeStyle(item.category)" class="px-2 py-0.5 rounded-full text-xs font-medium">
+                  {{ item.ext ? item.ext.toUpperCase() : item.category }}
+                </span>
+              </td>
+
+              <!-- 大小 -->
+              <td class="py-3 px-4 text-right">
+                <span class="font-bold text-slate-800 text-sm">
+                  {{ item.size_formatted }}
+                </span>
+              </td>
+
+              <!-- 修改时间 -->
+              <td class="py-3 px-4 text-center text-xs text-slate-500">
+                {{ item.mtime_formatted }}
+              </td>
+
+              <!-- 快捷操作按钮 -->
+              <td class="py-3 px-4 text-right space-x-1.5 whitespace-nowrap">
+                <!-- 在访达中定位 -->
+                <button 
+                  @click="revealInFinder(item.path)" 
+                  title="在 Mac 访达中查看定位" 
+                  class="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors inline-flex items-center gap-1 text-xs"
+                >
+                  <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                  <span>访达</span>
+                </button>
+
+                <!-- 移入废纸篓 -->
+                <button 
+                  @click="confirmSingleDelete(item, false)" 
+                  title="安全移动到废纸篓" 
+                  class="p-1.5 text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors inline-flex items-center gap-1 text-xs font-medium"
+                >
+                  <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                  <span>废纸篓</span>
+                </button>
+
+                <!-- 永久彻底删除 -->
+                <button 
+                  @click="confirmSingleDelete(item, true)" 
+                  title="彻底删除 (不可恢复)" 
+                  class="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors inline-flex items-center text-xs"
+                >
+                  <i data-lucide="x-circle" class="w-3.5 h-3.5"></i>
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 底部悬浮批量操作栏 -->
+    <div 
+      v-if="selectedPaths.size > 0" 
+      class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 backdrop-blur-md text-white px-6 py-3.5 rounded-2xl shadow-2xl border border-slate-700/50 flex items-center gap-6"
+    >
+      <div class="flex items-center gap-3">
+        <div class="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-pulse"></div>
+        <span class="text-sm font-medium">已选择 <strong class="text-indigo-300 font-bold">{{ selectedPaths.size }}</strong> 项</span>
+        <span class="text-xs text-slate-400">预计可释放: <strong class="text-emerald-400 font-semibold">{{ selectedSizeFormatted }}</strong></span>
+      </div>
+
+      <div class="h-4 w-px bg-slate-700"></div>
+
+      <div class="flex items-center gap-2">
+        <button 
+          @click="confirmBatchDelete(false)" 
+          class="px-4 py-2 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-900 font-semibold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5"
+        >
+          <i data-lucide="trash-2" class="w-4 h-4"></i>
+          移到废纸篓 (推荐安全)
+        </button>
+
+        <button 
+          @click="confirmBatchDelete(true)" 
+          class="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-medium text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5"
+        >
+          <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+          彻底永久删除
+        </button>
+
+        <button 
+          @click="selectedPaths.clear()" 
+          class="px-3 py-2 text-xs text-slate-400 hover:text-white transition-colors"
+        >
+          取消勾选
+        </button>
+      </div>
+    </div>
+
+    <!-- 删除确认模态弹窗 -->
+    <div v-if="deleteModal.show" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200">
+        <div class="flex items-center gap-3 mb-4">
+          <div :class="deleteModal.permanent ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600'" class="p-3 rounded-xl">
+            <i :data-lucide="deleteModal.permanent ? 'alert-triangle' : 'trash-2'" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h3 class="text-lg font-bold text-slate-900">
+              {{ deleteModal.permanent ? '确认彻底永久删除？' : '确认移至废纸篓？' }}
+            </h3>
+            <p class="text-xs text-slate-500">
+              {{ deleteModal.permanent ? '文件将被永久抹除，无法从废纸篓撤回！' : '文件将移动到 Mac 系统废纸篓，如需恢复可在废纸篓还原。' }}
+            </p>
+          </div>
+        </div>
+
+        <!-- 待删除项目清单摘要 -->
+        <div class="bg-slate-50 rounded-xl p-3 border border-slate-200 max-h-48 overflow-y-auto mb-4 text-xs space-y-1.5">
+          <div class="flex justify-between font-semibold text-slate-700 border-b border-slate-200 pb-1 mb-1">
+            <span>共 {{ deleteModal.items.length }} 个文件</span>
+            <span class="text-emerald-600 font-bold">总大小: {{ deleteModal.totalSizeFormatted }}</span>
+          </div>
+          <div v-for="item in deleteModal.items.slice(0, 5)" :key="item.path" class="truncate text-slate-600">
+            • {{ item.name }} ({{ item.size_formatted }})
+          </div>
+          <div v-if="deleteModal.items.length > 5" class="text-slate-400 italic">
+            ... 以及其他 {{ deleteModal.items.length - 5 }} 个文件
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-2.5">
+          <button 
+            @click="deleteModal.show = false" 
+            :disabled="deleteModal.loading"
+            class="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+          >
+            取消
+          </button>
+          <button 
+            @click="executeDelete" 
+            :disabled="deleteModal.loading"
+            :class="deleteModal.permanent ? 'bg-rose-600 hover:bg-rose-700' : 'bg-amber-500 hover:bg-amber-600'"
+            class="px-5 py-2 text-xs font-bold text-white rounded-xl shadow-md transition-all flex items-center gap-1.5"
+          >
+            <i v-if="deleteModal.loading" data-lucide="loader" class="w-4 h-4 animate-spin"></i>
+            <span>{{ deleteModal.loading ? '处理中...' : '确定执行' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast 提示消息 -->
+    <div 
+      v-if="toast.show" 
+      class="fixed top-6 right-6 z-50 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium transition-all flex items-center gap-2"
+      :class="toast.type === 'error' ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'"
+    >
+      <i :data-lucide="toast.type === 'error' ? 'alert-circle' : 'check-circle'" class="w-5 h-5"></i>
+      <span>{{ toast.message }}</span>
+    </div>
+
+  </div>
+
+  <script>
+    const { createApp, ref, reactive, computed, onMounted, nextTick } = Vue;
+
+    createApp({
+      setup() {
+        const systemInfo = ref({});
+        const isRefreshingDisk = ref(false);
+
+        const scanConfig = reactive({
+          path: '/Users/minfengyu/files/Antigravty',
+          min_size_mb: 50,
+          include_hidden: true,
+          max_depth: null
+        });
+
+        const scanStatus = reactive({
+          is_scanning: false,
+          current_dir: '',
+          scanned_files_count: 0,
+          scanned_dirs_count: 0,
+          elapsed_seconds: 0,
+          found_count: 0,
+          total_found_size: 0,
+          total_found_size_formatted: '0 B',
+          results: []
+        });
+
+        const activeCategory = ref('all');
+        const searchQuery = ref('');
+        const sortBy = ref('size_desc');
+        const selectedPaths = ref(new Set());
+
+        const deleteModal = reactive({
+          show: false,
+          permanent: false,
+          items: [],
+          totalSizeFormatted: '0 B',
+          loading: false
+        });
+
+        const toast = reactive({
+          show: false,
+          type: 'success',
+          message: ''
+        });
+
+        const categories = [
+          { key: 'all', label: '全部文件' },
+          { key: 'model', label: '🧠 AI与模型权重' },
+          { key: 'video', label: '🎬 视频媒体' },
+          { key: 'archive', label: '📦 压缩包与镜像' },
+          { key: 'audio', label: '🎵 音频' },
+          { key: 'image', label: '🖼️ 图片设计稿' },
+          { key: 'document', label: '📄 文档与PDF' },
+          { key: 'other', label: '📁 其他文件' }
+        ];
+
+        const refreshIcons = () => {
+          nextTick(() => {
+            if (window.lucide) {
+              window.lucide.createIcons();
+            }
+          });
+        };
+
+        const showToast = (message, type = 'success') => {
+          toast.message = message;
+          toast.type = type;
+          toast.show = true;
+          refreshIcons();
+          setTimeout(() => {
+            toast.show = false;
+          }, 3500);
+        };
+
+        const fetchSystemInfo = async () => {
+          isRefreshingDisk.value = true;
+          try {
+            const res = await fetch('/api/system');
+            const data = await res.json();
+            systemInfo.value = data;
+          } catch (e) {
+            console.error(e);
+          } finally {
+            isRefreshingDisk.value = false;
+            refreshIcons();
+          }
+        };
+
+        let pollTimer = null;
+
+        const pollScanStatus = async () => {
+          try {
+            const res = await fetch('/api/scan/status');
+            const data = await res.json();
+            Object.assign(scanStatus, data);
+            refreshIcons();
+
+            if (scanStatus.is_scanning) {
+              pollTimer = setTimeout(pollScanStatus, 800);
+            } else {
+              pollTimer = null;
+              refreshIcons();
+            }
+          } catch (e) {
+            console.error(e);
+            if (scanStatus.is_scanning) {
+              pollTimer = setTimeout(pollScanStatus, 1500);
+            }
+          }
+        };
+
+        const startScan = async () => {
+          if (!scanConfig.path) {
+            showToast('请指定扫描路径', 'error');
+            return;
+          }
+          selectedPaths.value.clear();
+          try {
+            const res = await fetch('/api/scan/start', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(scanConfig)
+            });
+            const data = await res.json();
+            if (!res.ok) {
+              showToast(data.detail || '启动扫描失败', 'error');
+              return;
+            }
+            scanStatus.is_scanning = true;
+            pollScanStatus();
+          } catch (e) {
+            showToast('请求失败: ' + e.message, 'error');
+          }
+        };
+
+        const stopScan = async () => {
+          try {
+            await fetch('/api/scan/stop', { method: 'POST' });
+            showToast('已发送停止请求');
+          } catch (e) {
+            console.error(e);
+          }
+        };
+
+        const revealInFinder = async (path) => {
+          try {
+            const res = await fetch('/api/file/reveal', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ path })
+            });
+            if (res.ok) {
+              showToast('已在访达 (Finder) 中高亮定位');
+            } else {
+              showToast('定位失败', 'error');
+            }
+          } catch (e) {
+            showToast(e.message, 'error');
+          }
+        };
+
+        const copyPath = (text) => {
+          navigator.clipboard.writeText(text);
+          showToast('已复制完整路径到剪贴板');
+        };
+
+        // 筛选逻辑
+        const filteredResults = computed(() => {
+          let list = scanStatus.results || [];
+
+          if (activeCategory.value !== 'all') {
+            list = list.filter(item => item.category === activeCategory.value);
+          }
+
+          if (searchQuery.value.trim()) {
+            const q = searchQuery.value.toLowerCase().trim();
+            list = list.filter(item => item.name.toLowerCase().includes(q) || item.path.toLowerCase().includes(q));
+          }
+
+          list = [...list].sort((a, b) => {
+            if (sortBy.value === 'size_desc') return b.size - a.size;
+            if (sortBy.value === 'size_asc') return a.size - b.size;
+            if (sortBy.value === 'time_desc') return b.mtime - a.mtime;
+            if (sortBy.value === 'name_asc') return a.name.localeCompare(b.name);
+            return 0;
+          });
+
+          return list;
+        });
+
+        const getCategoryCount = (key) => {
+          if (!scanStatus.results) return 0;
+          if (key === 'all') return scanStatus.results.length;
+          return scanStatus.results.filter(r => r.category === key).length;
+        };
+
+        const isAllSelected = computed(() => {
+          const currentList = filteredResults.value;
+          if (currentList.length === 0) return false;
+          return currentList.every(item => selectedPaths.value.has(item.path));
+        });
+
+        const toggleSelectAll = () => {
+          const currentList = filteredResults.value;
+          if (isAllSelected.value) {
+            currentList.forEach(item => selectedPaths.value.delete(item.path));
+          } else {
+            currentList.forEach(item => selectedPaths.value.add(item.path));
+          }
+        };
+
+        const toggleSelect = (path) => {
+          if (selectedPaths.value.has(path)) {
+            selectedPaths.value.delete(path);
+          } else {
+            selectedPaths.value.add(path);
+          }
+        };
+
+        const selectedSizeFormatted = computed(() => {
+          let bytes = 0;
+          for (const item of scanStatus.results) {
+            if (selectedPaths.value.has(item.path)) {
+              bytes += item.size;
+            }
+          }
+          for (const unit of ['B', 'KB', 'MB', 'GB', 'TB']) {
+            if (bytes < 1024.0) return bytes.toFixed(1) + ' ' + unit;
+            bytes /= 1024.0;
+          }
+          return bytes.toFixed(1) + ' PB';
+        });
+
+        const confirmSingleDelete = (item, permanent) => {
+          deleteModal.permanent = permanent;
+          deleteModal.items = [item];
+          deleteModal.totalSizeFormatted = item.size_formatted;
+          deleteModal.show = true;
+          refreshIcons();
+        };
+
+        const confirmBatchDelete = (permanent) => {
+          const items = scanStatus.results.filter(item => selectedPaths.value.has(item.path));
+          if (items.length === 0) return;
+          deleteModal.permanent = permanent;
+          deleteModal.items = items;
+          deleteModal.totalSizeFormatted = selectedSizeFormatted.value;
+          deleteModal.show = true;
+          refreshIcons();
+        };
+
+        const executeDelete = async () => {
+          deleteModal.loading = true;
+          try {
+            const paths = deleteModal.items.map(i => i.path);
+            const res = await fetch('/api/file/delete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                paths: paths,
+                permanent: deleteModal.permanent
+              })
+            });
+            const data = await res.json();
+            
+            // 清理已选
+            paths.forEach(p => selectedPaths.value.delete(p));
+            deleteModal.show = false;
+
+            // 重新拉取状态与磁盘信息
+            await pollScanStatus();
+            await fetchSystemInfo();
+
+            if (data.errors && data.errors.length > 0) {
+              showToast(`部分完成: 成功删除 ${data.success_count} 个文件 (释放 ${data.freed_formatted})，${data.errors.length} 处错误`, 'error');
+            } else {
+              showToast(`成功${deleteModal.permanent ? '彻底删除' : '移入废纸篓'} ${data.success_count} 个项目，释放 ${data.freed_formatted}！`);
+            }
+          } catch (e) {
+            showToast('删除失败: ' + e.message, 'error');
+          } finally {
+            deleteModal.loading = false;
+          }
+        };
+
+        const getIconForCategory = (cat) => {
+          switch(cat) {
+            case 'model': return 'brain';
+            case 'video': return 'video';
+            case 'archive': return 'archive';
+            case 'audio': return 'music';
+            case 'image': return 'image';
+            case 'document': return 'file-text';
+            default: return 'file';
+          }
+        };
+
+        const getCategoryBadgeStyle = (cat) => {
+          switch(cat) {
+            case 'model': return 'bg-purple-50 text-purple-700 border border-purple-200';
+            case 'video': return 'bg-blue-50 text-blue-700 border border-blue-200';
+            case 'archive': return 'bg-amber-50 text-amber-700 border border-amber-200';
+            case 'audio': return 'bg-pink-50 text-pink-700 border border-pink-200';
+            case 'image': return 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+            default: return 'bg-slate-100 text-slate-700 border border-slate-200';
+          }
+        };
+
+        onMounted(() => {
+          fetchSystemInfo();
+          pollScanStatus();
+          refreshIcons();
+        });
+
+        return {
+          systemInfo,
+          isRefreshingDisk,
+          scanConfig,
+          scanStatus,
+          activeCategory,
+          searchQuery,
+          sortBy,
+          selectedPaths,
+          deleteModal,
+          toast,
+          categories,
+          filteredResults,
+          isAllSelected,
+          selectedSizeFormatted,
+          fetchSystemInfo,
+          startScan,
+          stopScan,
+          revealInFinder,
+          copyPath,
+          getCategoryCount,
+          toggleSelectAll,
+          toggleSelect,
+          confirmSingleDelete,
+          confirmBatchDelete,
+          executeDelete,
+          getIconForCategory,
+          getCategoryBadgeStyle
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>

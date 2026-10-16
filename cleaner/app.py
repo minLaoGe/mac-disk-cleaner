@@ -1,0 +1,370 @@
+import os
+import sys
+import time
+import shutil
+import subprocess
+import threading
+from pathlib import Path
+from typing import List, Optional
+from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+app = FastAPI(title="Mac Big File Cleaner")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 保护列表：严禁删除的关键系统目录
+PROTECTED_PATHS = {
+    "/", "/System", "/bin", "/sbin", "/usr", "/etc", "/var",
+    "/Applications", "/Library", os.path.expanduser("~")
+}
+
+def is_safe_to_delete(path_str: str) -> bool:
+    try:
+        resolved = Path(path_str).resolve()
+        if str(resolved) in PROTECTED_PATHS:
+            return False
+        # 不允许删除系统核心系统根
+        parts = resolved.parts
+        if len(parts) <= 2:  # 如 / or /System
+            return False
+        if parts[1] in ["System", "bin", "sbin", "usr", "etc", "var"] and not str(resolved).startswith(os.path.expanduser("~")):
+            return False
+        return True
+    except Exception:
+        return False
+
+def format_size(bytes_num: int) -> str:
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if bytes_num < 1024.0:
+            return f"{bytes_num:.1f} {unit}"
+        bytes_num /= 1024.0
+    return f"{bytes_num:.1f} PB"
+
+def get_file_category(ext: str) -> str:
+    ext = ext.lower()
+    categories = {
+        "model": [".bin", ".safetensors", ".gguf", ".pt", ".pth", ".onnx", ".ckpt", ".h5"],
+        "video": [".mp4", ".mov", ".mkv", ".avi", ".wmv", ".flv", ".webm", ".m4v"],
+        "archive": [".zip", ".tar", ".gz", ".7z", ".rar", ".bz2", ".xz", ".dmg", ".iso", ".pkg"],
+        "audio": [".mp3", ".wav", ".flac", ".aac", ".m4a", ".ogg"],
+        "image": [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tiff", ".psd", ".raw"],
+        "document": [".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"],
+    }
+    for cat, exts in categories.items():
+        if ext in exts:
+            return cat
+    return "other"
+
+class ScanManager:
+    def __init__(self):
+        self.is_scanning = False
+        self.stop_requested = False
+        self.current_dir = ""
+        self.scanned_files_count = 0
+        self.scanned_dirs_count = 0
+        self.start_time = 0.0
+        self.elapsed_seconds = 0.0
+        self.results = []
+        self.total_found_size = 0
+        self.lock = threading.Lock()
+        self.scan_thread: Optional[threading.Thread] = None
+
+    def start(self, target_path: str, min_size_bytes: int, include_hidden: bool, max_depth: Optional[int] = None):
+        with self.lock:
+            if self.is_scanning:
+                return False
+            self.is_scanning = True
+            self.stop_requested = False
+            self.current_dir = target_path
+            self.scanned_files_count = 0
+            self.scanned_dirs_count = 0
+            self.start_time = time.time()
+            self.elapsed_seconds = 0.0
+            self.results = []
+            self.total_found_size = 0
+
+        self.scan_thread = threading.Thread(
+            target=self._scan_worker,
+            args=(target_path, min_size_bytes, include_hidden, max_depth),
+            daemon=True
+        )
+        self.scan_thread.start()
+        return True
+
+    def stop(self):
+        with self.lock:
+            self.stop_requested = True
+
+    def _scan_worker(self, target_path: str, min_size_bytes: int, include_hidden: bool, max_depth: Optional[int]):
+        root_path = Path(target_path).expanduser().resolve()
+        root_depth = len(root_path.parts)
+
+        try:
+            for root, dirs, files in os.walk(str(root_path), followlinks=False):
+                if self.stop_requested:
+                    break
+
+                current_p = Path(root)
+                current_depth = len(current_p.parts) - root_depth
+
+                if not include_hidden:
+                    # 过滤隐藏文件夹
+                    dirs[:] = [d for d in dirs if not d.startswith('.')]
+                
+                if max_depth is not None and current_depth >= max_depth:
+                    dirs[:] = []
+
+                with self.lock:
+                    self.current_dir = root
+                    self.scanned_dirs_count += 1
+                    self.elapsed_seconds = time.time() - self.start_time
+
+                for f in files:
+                    if self.stop_requested:
+                        break
+
+                    if not include_hidden and f.startswith('.'):
+                        continue
+
+                    file_path = os.path.join(root, f)
+                    self.scanned_files_count += 1
+
+                    try:
+                        stat = os.lstat(file_path)
+                        # 跳过符号链接
+                        if os.path.islink(file_path):
+                            continue
+
+                        size = stat.st_size
+                        if size >= min_size_bytes:
+                            ext = os.path.splitext(f)[1]
+                            item = {
+                                "id": f"{stat.st_dev}_{stat.st_ino}",
+                                "name": f,
+                                "path": file_path,
+                                "size": size,
+                                "size_formatted": format_size(size),
+                                "ext": ext,
+                                "category": get_file_category(ext),
+                                "mtime": stat.st_mtime,
+                                "mtime_formatted": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime))
+                            }
+                            with self.lock:
+                                self.results.append(item)
+                                self.total_found_size += size
+                    except (PermissionError, FileNotFoundError, OSError):
+                        continue
+        finally:
+            with self.lock:
+                self.is_scanning = False
+                self.elapsed_seconds = time.time() - self.start_time
+                # 按大小倒序排序
+                self.results.sort(key=lambda x: x["size"], reverse=True)
+
+    def get_status(self):
+        with self.lock:
+            if self.is_scanning:
+                self.elapsed_seconds = time.time() - self.start_time
+            return {
+                "is_scanning": self.is_scanning,
+                "current_dir": self.current_dir,
+                "scanned_files_count": self.scanned_files_count,
+                "scanned_dirs_count": self.scanned_dirs_count,
+                "elapsed_seconds": round(self.elapsed_seconds, 1),
+                "found_count": len(self.results),
+                "total_found_size": self.total_found_size,
+                "total_found_size_formatted": format_size(self.total_found_size),
+                "results": list(self.results)
+            }
+
+    def remove_from_results(self, paths: List[str]):
+        path_set = set(paths)
+        with self.lock:
+            new_results = []
+            for item in self.results:
+                if item["path"] in path_set:
+                    self.total_found_size -= item["size"]
+                else:
+                    new_results.append(item)
+            self.results = new_results
+
+scanner = ScanManager()
+
+class ScanRequest(BaseModel):
+    path: str
+    min_size_mb: float = 100.0
+    include_hidden: bool = True
+    max_depth: Optional[int] = None
+
+class DeleteRequest(BaseModel):
+    paths: List[str]
+    permanent: bool = False
+
+class RevealRequest(BaseModel):
+    path: str
+
+@app.get("/api/system")
+def get_system_info():
+    home = os.path.expanduser("~")
+    usage = shutil.disk_usage(home)
+    total = usage.total
+    used = usage.used
+    free = usage.free
+    percent = round((used / total) * 100, 1)
+
+    # 常用目录快捷预设
+    presets = [
+        {"name": "当前项目 (Antigravity)", "path": str(Path(__file__).parent.parent.resolve()), "icon": "folder-code"},
+        {"name": "个人主目录 (~)", "path": home, "icon": "home"},
+        {"name": "下载 (Downloads)", "path": os.path.join(home, "Downloads"), "icon": "download"},
+        {"name": "桌面 (Desktop)", "path": os.path.join(home, "Desktop"), "icon": "monitor"},
+        {"name": "AI/模型缓存 (~/.cache)", "path": os.path.join(home, ".cache"), "icon": "brain"},
+        {"name": "Ollama 模型 (~/.ollama)", "path": os.path.join(home, ".ollama"), "icon": "cpu"},
+        {"name": "用户应用缓存 (Caches)", "path": os.path.join(home, "Library/Caches"), "icon": "database"},
+        {"name": "微信聊天数据缓存", "path": os.path.join(home, "Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat"), "icon": "message-circle"},
+    ]
+
+    valid_presets = []
+    for p in presets:
+        expanded = os.path.expanduser(p["path"])
+        if os.path.exists(expanded):
+            p["exists"] = True
+            p["expanded_path"] = expanded
+            valid_presets.append(p)
+
+    return {
+        "disk": {
+            "total": total,
+            "used": used,
+            "free": free,
+            "percent": percent,
+            "total_formatted": format_size(total),
+            "used_formatted": format_size(used),
+            "free_formatted": format_size(free),
+        },
+        "presets": valid_presets,
+        "home": home
+    }
+
+@app.post("/api/scan/start")
+def start_scan(req: ScanRequest):
+    expanded = os.path.expanduser(req.path)
+    if not os.path.exists(expanded):
+        raise HTTPException(status_code=400, detail=f"目标路径不存在: {req.path}")
+    
+    min_bytes = int(req.min_size_mb * 1024 * 1024)
+    success = scanner.start(
+        target_path=expanded,
+        min_size_bytes=min_bytes,
+        include_hidden=req.include_hidden,
+        max_depth=req.max_depth
+    )
+    if not success:
+        raise HTTPException(status_code=409, detail="已有扫描任务正在运行中")
+    return {"status": "ok", "message": "扫描已启动"}
+
+@app.get("/api/scan/status")
+def get_scan_status():
+    return scanner.get_status()
+
+@app.post("/api/scan/stop")
+def stop_scan():
+    scanner.stop()
+    return {"status": "ok", "message": "已请求停止扫描"}
+
+@app.post("/api/file/reveal")
+def reveal_in_finder(req: RevealRequest):
+    if not os.path.exists(req.path):
+        raise HTTPException(status_code=404, detail="文件不存在")
+    try:
+        subprocess.run(["open", "-R", req.path], check=True)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+def move_to_trash(file_path: str):
+    """优先使用 AppleScript 移动到废纸篓，安全防误删；如果失败则移动至 ~/.Trash"""
+    try:
+        # AppleScript call
+        script = f'tell application "Finder" to delete POSIX file "{file_path}"'
+        res = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=5)
+        if res.returncode == 0:
+            return True
+    except Exception:
+        pass
+
+    # Fallback to direct move to ~/.Trash
+    trash_dir = os.path.expanduser("~/.Trash")
+    os.makedirs(trash_dir, exist_ok=True)
+    base_name = os.path.basename(file_path)
+    dest_path = os.path.join(trash_dir, base_name)
+    counter = 1
+    stem, ext = os.path.splitext(base_name)
+    while os.path.exists(dest_path):
+        dest_path = os.path.join(trash_dir, f"{stem}_{counter}{ext}")
+        counter += 1
+    shutil.move(file_path, dest_path)
+    return True
+
+@app.post("/api/file/delete")
+def delete_files(req: DeleteRequest):
+    success_count = 0
+    freed_bytes = 0
+    errors = []
+    processed_paths = []
+
+    for path_str in req.paths:
+        if not is_safe_to_delete(path_str):
+            errors.append(f"安全限制，禁止删除关键路径: {path_str}")
+            continue
+
+        if not os.path.exists(path_str):
+            errors.append(f"文件不存在: {path_str}")
+            continue
+
+        try:
+            size = os.path.getsize(path_str) if os.path.isfile(path_str) else 0
+            if req.permanent:
+                if os.path.isdir(path_str):
+                    shutil.rmtree(path_str)
+                else:
+                    os.remove(path_str)
+            else:
+                move_to_trash(path_str)
+
+            success_count += 1
+            freed_bytes += size
+            processed_paths.append(path_str)
+        except Exception as e:
+            errors.append(f"删除失败 ({path_str}): {str(e)}")
+
+    if processed_paths:
+        scanner.remove_from_results(processed_paths)
+
+    return {
+        "success_count": success_count,
+        "freed_bytes": freed_bytes,
+        "freed_formatted": format_size(freed_bytes),
+        "errors": errors
+    }
+
+@app.get("/", response_class=HTMLResponse)
+def index_page():
+    template_path = Path(__file__).parent / "templates" / "index.html"
+    if template_path.exists():
+        with open(template_path, "r", encoding="utf-8") as f:
+            return f.read()
+    return "<h1>Cleaner UI template not found</h1>"
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("cleaner.app:app", host="127.0.0.1", port=8899, reload=False)
