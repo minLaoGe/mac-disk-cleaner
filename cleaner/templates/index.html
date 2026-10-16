@@ -1211,8 +1211,8 @@
           results: []
         });
 
-        // 筛选与搜索状态
-        const activeCategory = ref('all');
+        // 筛选与搜索状态 (支持 URL ?cat= 参数直达特定分类)
+        const activeCategory = ref(new URLSearchParams(window.location.search).get('cat') || 'all');
         const fileNameQuery = ref('');
         const pathQuery = ref('');
         const selectedFolder = ref('all');
