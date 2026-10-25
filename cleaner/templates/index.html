@@ -240,6 +240,16 @@
       </div>
     </section>
 
+    <section class="mt-4 bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+      <h2 class="font-semibold mb-2">{{ tt('directoryTitle') }}</h2>
+      <p class="text-xs text-slate-500 mb-3">{{ tt('directoryHelp') }}</p>
+      <div class="flex flex-wrap gap-2">
+        <input v-model="directorySource" :placeholder="tt('sourceDirectory')" aria-label="源目录" class="flex-1 min-w-48 border rounded-xl px-3 py-2 text-sm">
+        <button :disabled="scanStatus.is_scanning" @click="openTransfer([directorySource || scanConfig.path], true, false)" class="px-3 py-2 bg-indigo-50 text-indigo-700 rounded-xl text-sm disabled:opacity-40">{{ tt('directoryKeep') }}</button>
+        <button :disabled="scanStatus.is_scanning" @click="openTransfer([directorySource || scanConfig.path], true, true)" class="px-3 py-2 bg-amber-50 text-amber-800 rounded-xl text-sm disabled:opacity-40">{{ tt('directoryMove') }}</button>
+      </div>
+    </section>
+
     <!-- 扫描进度与缓存状态条 -->
     <section v-if="scanStatus.is_scanning || scanStatus.scanned_files_count > 0 || (scanStatus.results && scanStatus.results.length > 0)" class="mt-4 bg-white rounded-xl border border-slate-200 shadow-sm p-4">
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -599,6 +609,11 @@
                   <span>{{ t('btnFinder') }}</span>
                 </button>
 
+                <button :disabled="scanStatus.is_scanning" @click="openTransfer([item.path], false, false)" class="px-2 py-1 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] disabled:opacity-40">{{ tt('keep') }}</button>
+                <button :disabled="scanStatus.is_scanning" @click="openTransfer([item.path], false, true)" class="px-2 py-1 text-amber-800 border border-amber-200 rounded-lg text-[11px] disabled:opacity-40">{{ tt('move') }}</button>
+                <button :disabled="scanStatus.is_scanning" @click="openTransfer([item.path.slice(0, item.path.lastIndexOf('/')) || '/'], true, false)" class="px-2 py-1 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] disabled:opacity-40">{{ tt('directoryKeep') }}</button>
+                <button :disabled="scanStatus.is_scanning" @click="openTransfer([item.path.slice(0, item.path.lastIndexOf('/')) || '/'], true, true)" class="px-2 py-1 text-amber-800 border border-amber-200 rounded-lg text-[11px] disabled:opacity-40">{{ tt('directoryMove') }}</button>
+
                 <!-- 移入废纸篓 -->
                 <button 
                   @click="confirmSingleDelete(item, false)" 
@@ -643,6 +658,12 @@
 
       <div class="flex items-center gap-2">
         <button 
+          :disabled="scanStatus.is_scanning"
+          @click="openTransfer([...selectedPaths], false, false)"
+          class="px-3 py-2 bg-indigo-600 text-white rounded-xl text-xs disabled:opacity-40"
+        >{{ tt('keep') }}</button>
+        <button :disabled="scanStatus.is_scanning" @click="openTransfer([...selectedPaths], false, true)" class="px-3 py-2 bg-indigo-600 text-white rounded-xl text-xs disabled:opacity-40">{{ tt('move') }}</button>
+        <button
           @click="confirmBatchDelete(false)" 
           class="px-4 py-2 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-900 font-semibold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5"
         >
@@ -664,6 +685,53 @@
         >
           {{ t('deselectAll') }}
         </button>
+      </div>
+    </div>
+
+    <div v-if="transfer.show" role="dialog" aria-modal="true" aria-labelledby="transfer-title" class="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+        <h3 id="transfer-title" class="text-lg font-bold">{{ transfer.wholeDirectory ? (transfer.deleteOriginal ? tt('directoryMove') : tt('directoryKeep')) : (transfer.deleteOriginal ? tt('move') : tt('keep')) }}</h3>
+        <p class="text-sm mt-3" :class="transfer.deleteOriginal ? 'text-amber-800' : 'text-slate-600'">{{ transfer.deleteOriginal ? tt('deleteHelp') : tt('keepHelp') }}</p>
+        <p v-if="transfer.wholeDirectory" class="text-sm mt-2 text-amber-800">{{ tt('directoryHelp') }}</p>
+        <ul class="my-3 max-h-40 overflow-y-auto text-xs font-mono bg-slate-50 rounded-lg p-3"><li v-for="path in transfer.paths" :key="path" class="break-all">{{ path }}</li></ul>
+        <label for="transfer-destination" class="block text-sm font-medium mb-2">{{ tt('destination') }}</label>
+        <input id="transfer-destination" v-model="transfer.destination" :disabled="transfer.loading" placeholder="/Volumes/External/backup" class="w-full border rounded-xl px-3 py-2 text-sm">
+        <p class="text-xs text-slate-500 mt-2">{{ tt('targetHelp') }}</p>
+        <div v-if="transfer.progress" class="mt-4 space-y-3">
+          <div class="flex items-center justify-between text-sm gap-2">
+            <span class="font-medium">{{ tt('progress') }}</span>
+            <strong class="text-indigo-700">{{ transfer.progress.percent }}%</strong>
+          </div>
+          <div role="progressbar" :aria-label="tt('progress')" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="transfer.progress.percent" class="h-3 bg-slate-100 rounded-full overflow-hidden">
+            <div class="h-full transition-all duration-300 rounded-full" :class="transfer.progress.errors.length ? 'bg-amber-500' : 'bg-indigo-600'" :style="{ width: transfer.progress.percent + '%' }"></div>
+          </div>
+          <div role="status" class="text-sm font-medium text-indigo-700">{{ tt(transfer.progress.status === 'running' ? transfer.progress.phase : transfer.progress.status) }}</div>
+          <p v-if="transfer.progress.current_path" class="text-xs font-mono break-all bg-slate-50 p-2 rounded-lg">{{ transfer.progress.current_path }}</p>
+          <div class="grid grid-cols-2 gap-2 text-xs text-slate-600">
+            <span>{{ tt('copied') }}: {{ transferSize(transfer.progress.copied_bytes) }} / {{ transferSize(transfer.progress.total_bytes) }}</span>
+            <span>{{ tt('files') }}: {{ transfer.progress.copied_files }} / {{ transfer.progress.total_files }}</span>
+            <span>{{ tt('elapsed') }}: {{ transfer.progress.elapsed_seconds }} {{ tt('seconds') }}</span>
+            <span>{{ tt('processed') }}: {{ transfer.progress.success_count }} / {{ transfer.progress.paths.length }}</span>
+            <span class="col-span-2">{{ tt('speed') }}: {{ transferSize(transfer.progress.speed_bytes) }}/s</span>
+          </div>
+          <details open class="border rounded-xl p-3">
+            <summary class="cursor-pointer text-sm font-medium">{{ tt('details') }}</summary>
+            <ul class="mt-2 space-y-2 max-h-52 overflow-y-auto">
+              <li v-for="item in transfer.progress.items" :key="item.source" class="text-xs border-t pt-2">
+                <strong :class="item.status === 'failed' ? 'text-rose-600' : item.status === 'completed' ? 'text-emerald-700' : 'text-indigo-700'">{{ tt(item.status) }}</strong>
+                <p class="font-mono break-all mt-1">{{ item.source }} → {{ item.target }}</p>
+                <p v-if="item.error" class="text-rose-600 break-all mt-1">{{ item.error }}</p>
+              </li>
+            </ul>
+          </details>
+        </div>
+        <p v-if="transfer.loading && !transfer.progress" role="status" class="text-sm text-indigo-700 mt-4 animate-pulse">{{ tt('preparing') }}…</p>
+        <p v-if="transfer.connectionError" role="status" class="text-sm text-amber-800 mt-3">{{ transfer.connectionError }}</p>
+        <div v-if="transfer.report" role="status" class="mt-4 bg-slate-50 p-3 rounded-lg text-sm whitespace-pre-wrap break-all">{{ transfer.report }}</div>
+        <div class="flex justify-end gap-3 mt-5">
+          <button :disabled="transfer.loading" @click="transfer.show = false" class="px-4 py-2 border rounded-xl disabled:opacity-40">{{ tt('close') }}</button>
+          <button :disabled="transfer.loading || !transfer.destination.trim() || transfer.done" @click="executeTransfer" class="px-4 py-2 bg-indigo-600 text-white rounded-xl disabled:opacity-40">{{ tt('confirm') }}</button>
+        </div>
       </div>
     </div>
 
@@ -1268,6 +1336,104 @@
           refreshIcons();
         };
 
+        const transferLabels = {
+          zh: { directoryTitle: '整个目录移动', directoryHelp: '包括全部子目录、隐藏文件及小文件，不受扫描大小和筛选条件限制。', sourceDirectory: '源目录（留空使用上方扫描目录）', directoryKeep: '全目录移动（保留原目录）', directoryMove: '全目录移动并删除原目录', keep: '移动（保留原文件）', move: '移动并删除原文件', keepHelp: '复制到目标目录，完整校验后保留原件。', deleteHelp: '复制并完整校验成功后永久删除原件。请确认以下源路径。', destination: '目标目录', targetHelp: '目标目录须已存在；遇到同名文件或目录自动添加序号（如 name (1).ext），不会覆盖。', working: '正在复制并完整校验，大文件可能需要较长时间，请勿关闭服务或修改源文件…', close: '关闭', confirm: '确认执行', completed: '成功处理', failed: '操作失败' },
+          en: { directoryTitle: 'Transfer entire directory', directoryHelp: 'Includes all subdirectories, hidden and small files, regardless of scan filters.', sourceDirectory: 'Source directory (defaults to scan path)', directoryKeep: 'Copy entire directory', directoryMove: 'Move entire directory and delete source', keep: 'Copy file(s)', move: 'Move and delete source', keepHelp: 'Copy and verify all contents; keep the originals.', deleteHelp: 'Permanently delete originals only after a full verified copy. Check source paths below.', destination: 'Destination directory', targetHelp: 'Choose an existing directory. Name conflicts receive a numbered name, such as name (1).ext. Existing items are never overwritten.', working: 'Copying and verifying all contents. Keep the server running and do not modify source files…', close: 'Close', confirm: 'Confirm transfer', completed: 'Successfully processed', failed: 'Transfer failed' },
+          ja: { directoryTitle: 'ディレクトリ全体の転送', directoryHelp: 'スキャン条件に関係なく、隠しファイルと全サブディレクトリを含みます。', sourceDirectory: '元ディレクトリ（空欄はスキャン先）', directoryKeep: '全体をコピー（元を保持）', directoryMove: '全体を転送して元を削除', keep: 'コピー（元を保持）', move: '転送して元を削除', keepHelp: 'コピーして全内容を検証し、元を保持します。', deleteHelp: '全内容の検証に成功した後、元を完全削除します。以下のパスを確認してください。', destination: '転送先ディレクトリ', targetHelp: '既存のディレクトリを指定。同名項目には連番を付け、上書きしません。', working: 'コピーと全内容の検証中です。サービスを停止したり元ファイルを変更したりしないでください…', close: '閉じる', confirm: '実行', completed: '処理成功', failed: '転送失敗' }
+        };
+        const progressLabels = {
+          zh: { preparing: '统计文件', checking_source: '读取源文件校验', copying: '正在复制', verifying_target: '校验目标内容', verifying_source: '复查源文件', deleting: '删除原件', finished: '处理结束', pending: '等待处理', completed: '成功', failed: '失败', partial: '部分失败', noTask: '后台没有运行中的任务，请重试。', progress: '总体进度（包含完整校验）', copied: '已复制', files: '文件', elapsed: '用时', seconds: '秒', details: '逐项详情', reconnecting: '进度连接中断，正在自动重连；后台任务继续运行。', processed: '已处理', speed: '平均处理速度（含校验）' },
+          en: { preparing: 'Counting files', checking_source: 'Reading source checksums', copying: 'Copying', verifying_target: 'Verifying destination', verifying_source: 'Rechecking source', deleting: 'Deleting originals', finished: 'Finished', pending: 'Waiting', completed: 'Success', failed: 'Failed', partial: 'Partially failed', noTask: 'No background task is running. Please retry.', progress: 'Overall progress (includes verification)', copied: 'Copied', files: 'files', elapsed: 'Elapsed', seconds: 's', details: 'Item details', reconnecting: 'Reconnecting to progress. The background task continues.', processed: 'Processed', speed: 'Average processing speed (includes verification)' },
+          ja: { preparing: 'ファイル集計', checking_source: '元ファイルの検証', copying: 'コピー中', verifying_target: '転送先の検証', verifying_source: '元ファイルの再検証', deleting: '元を削除中', finished: '処理終了', pending: '待機中', completed: '成功', failed: '失敗', partial: '一部失敗', noTask: '実行中のタスクがありません。再試行してください。', progress: '全体の進捗（検証を含む）', copied: 'コピー済み', files: 'ファイル', elapsed: '経過', seconds: '秒', details: '項目の詳細', reconnecting: '進捗に再接続中。バックグラウンドで処理は続行されます。', processed: '処理済み', speed: '平均処理速度（検証を含む）' }
+        };
+        const tt = key => transferLabels[currentLang.value][key] || progressLabels[currentLang.value][key] || key;
+        const transferSize = bytes => {
+          let size = Number(bytes) || 0;
+          const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+          let unit = 0;
+          while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit++; }
+          return size.toFixed(1) + ' ' + units[unit];
+        };
+        const directorySource = ref('');
+        const transfer = reactive({ show: false, paths: [], destination: '', wholeDirectory: false, deleteOriginal: false, loading: false, report: '', done: false, progress: null, connectionError: '' });
+        const openTransfer = (paths, wholeDirectory, deleteOriginal) => {
+          if (scanStatus.is_scanning || transfer.loading) return;
+          if (!paths.length || paths.some(path => !path.trim())) {
+            showToast(tt('sourceDirectory'), 'error');
+            return;
+          }
+          Object.assign(transfer, { show: true, paths, wholeDirectory, deleteOriginal, loading: false, report: '', done: false, progress: null, connectionError: '' });
+        };
+        let transferPollTimer = null;
+        const watchTransfer = async (jobId = null, restore = false) => {
+          try {
+            const response = await fetch('/api/file/transfer/status', { cache: 'no-store' });
+            if (!response.ok) throw new Error('Progress unavailable');
+            const data = await response.json();
+            if (data.status === 'idle') {
+              if (transfer.loading) {
+                transfer.loading = false;
+                transfer.report = tt('failed') + ': ' + tt('noTask');
+              }
+              return;
+            }
+            if (jobId && data.id !== jobId) throw new Error('Task changed');
+            if (restore) {
+              if (data.status !== 'running' && localStorage.getItem('cleaner-transfer-id') !== data.id) return;
+              Object.assign(transfer, { show: true, paths: data.paths, destination: data.destination, wholeDirectory: data.whole_directory, deleteOriginal: data.delete_original });
+            }
+            transfer.progress = data;
+            transfer.connectionError = '';
+            transfer.done = true;
+            transfer.loading = data.status === 'running';
+            if (transfer.loading) {
+              localStorage.setItem('cleaner-transfer-id', data.id);
+              transferPollTimer = setTimeout(() => watchTransfer(data.id), 400);
+              return;
+            }
+            localStorage.removeItem('cleaner-transfer-id');
+            transfer.report = `${tt('completed')}: ${data.success_count} / ${data.paths.length}` + (data.errors.length ? '\n' + data.errors.join('\n') : '');
+            data.results.filter(item => item.deleted_original).forEach(item => {
+              for (const path of selectedPaths.value) {
+                if (path === item.source || path.startsWith(item.source + '/')) selectedPaths.value.delete(path);
+              }
+            });
+            await pollScanStatus();
+            await fetchSystemInfo();
+          } catch (error) {
+            if (!restore || transfer.loading) {
+              transfer.connectionError = tt('reconnecting');
+              transferPollTimer = setTimeout(() => watchTransfer(jobId, restore), 1500);
+            }
+          }
+        };
+        const executeTransfer = async () => {
+          transfer.loading = true;
+          transfer.report = '';
+          transfer.connectionError = '';
+          transfer.progress = null;
+          clearTimeout(transferPollTimer);
+          try {
+            const response = await fetch('/api/file/transfer/start', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ paths: transfer.paths, destination: transfer.destination, whole_directory: transfer.wholeDirectory, delete_original: transfer.deleteOriginal })
+            });
+            const data = await response.json();
+            if (!response.ok) {
+              transfer.loading = false;
+              transfer.report = tt('failed') + ': ' + data.detail;
+              return;
+            }
+            transfer.done = true;
+            localStorage.setItem('cleaner-transfer-id', data.id);
+            await watchTransfer(data.id);
+          } catch (error) {
+            // 启动响应丢失时先查询后台状态，避免重复提交移动任务。
+            transfer.connectionError = tt('reconnecting');
+            transferPollTimer = setTimeout(() => watchTransfer(null, true), 1000);
+          }
+        };
+
         const deleteModal = reactive({
           show: false,
           permanent: false,
@@ -1757,12 +1923,14 @@
         };
 
         onMounted(() => {
+          watchTransfer(null, true);
           fetchSystemInfo();
           pollScanStatus();
           refreshIcons();
         });
 
         return {
+          tt, transferSize, directorySource, transfer, openTransfer, executeTransfer,
           currentLang,
           changeLang,
           t,

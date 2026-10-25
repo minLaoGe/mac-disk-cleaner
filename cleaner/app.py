@@ -4,6 +4,9 @@ import json
 import time
 import shutil
 import hashlib
+import unicodedata
+import uuid
+import copy
 import subprocess
 import threading
 from pathlib import Path
@@ -419,6 +422,254 @@ class DeleteRequest(BaseModel):
     paths: List[str]
     permanent: bool = False
 
+class TransferRequest(BaseModel):
+    paths: List[str]
+    destination: str
+    delete_original: bool = False
+    whole_directory: bool = False
+
+
+transfer_lock = threading.Lock()
+
+
+def transfer_manifest(path: Path, on_progress=None):
+    """完整读取校验；链接只记录链接本身，不读取链接指向的内容。"""
+    entries = {}
+    def visit(current, relative):
+        if current.is_symlink():
+            entries[relative] = ("link", os.readlink(current))
+        elif current.is_dir():
+            entries[relative] = ("directory",)
+            for child in sorted(current.iterdir()):
+                visit(child, relative + "/" + child.name)
+        elif current.is_file():
+            before = current.stat()
+            digest = hashlib.sha256()
+            if on_progress:
+                on_progress(current, 0)
+            with current.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(4 * 1024 * 1024), b""):
+                    digest.update(chunk)
+                    if on_progress:
+                        on_progress(current, len(chunk))
+            after = current.stat()
+            if (before.st_size, before.st_mtime_ns, before.st_ino) != (after.st_size, after.st_mtime_ns, after.st_ino):
+                raise ValueError(f"校验期间文件发生变化: {current}")
+            entries[relative] = ("file", after.st_size, digest.hexdigest())
+        else:
+            raise ValueError(f"不支持特殊文件: {current}")
+    visit(path, "")
+    return entries
+
+
+class TransferProgress:
+    def __init__(self, req):
+        self.lock = threading.Lock()
+        self.started = time.monotonic()
+        self.data = {"id": uuid.uuid4().hex, "status": "running", "phase": "preparing",
+                     "current_path": "", "total_bytes": 0, "copied_bytes": 0,
+                     "work_bytes": 0, "total_files": 0, "copied_files": 0,
+                     "percent": 0, "items": [], "results": [], "errors": [],
+                     "success_count": 0, "delete_original": req.delete_original,
+                     "whole_directory": req.whole_directory, "destination": req.destination,
+                     "paths": list(req.paths)}
+
+    def update(self, **values):
+        with self.lock:
+            self.data.update(values)
+
+    def advance(self, path, amount):
+        with self.lock:
+            self.data["current_path"] = str(path)
+            self.data["work_bytes"] += amount
+            if self.data["phase"] == "copying":
+                self.data["copied_bytes"] += amount
+
+    def item(self, index, **values):
+        with self.lock:
+            self.data["items"][index].update(values)
+
+    def snapshot(self):
+        with self.lock:
+            result = copy.deepcopy(self.data)
+        elapsed = max(time.monotonic() - self.started, .001)
+        result["elapsed_seconds"] = round(elapsed, 1)
+        result["speed_bytes"] = int(result["work_bytes"] / elapsed)
+        result["percent"] = (100 if result["status"] != "running" else
+                             min(99, round(result["work_bytes"] / max(1, result["total_bytes"] * 4) * 100, 1)))
+        return result
+
+
+transfer_job = None
+
+
+def copy_transfer_file(source, target, progress=None):
+    if progress:
+        progress.advance(source, 0)
+    with open(source, "rb") as reader, open(target, "xb") as writer:
+        while True:
+            chunk = reader.read(4 * 1024 * 1024)
+            if not chunk:
+                break
+            writer.write(chunk)
+            if progress:
+                progress.advance(source, len(chunk))
+    shutil.copystat(source, target)
+    if progress:
+        with progress.lock:
+            progress.data["copied_files"] += 1
+    return str(target)
+
+
+@app.get("/api/file/transfer/status")
+def get_transfer_status():
+    return transfer_job.snapshot() if transfer_job else {"status": "idle"}
+
+
+@app.post("/api/file/transfer/start")
+def start_transfer(req: TransferRequest):
+    global transfer_job
+    if not transfer_lock.acquire(blocking=False):
+        raise HTTPException(409, "已有移动任务正在执行")
+    if scanner.is_scanning:
+        transfer_lock.release()
+        raise HTTPException(409, "请先停止扫描，再移动文件或目录")
+    job = TransferProgress(req)
+    transfer_job = job
+
+    def worker():
+        try:
+            result = run_transfer(req, job, lock_acquired=True)
+            job.update(**result, status="completed" if not result["errors"] else "partial", phase="finished", current_path="")
+        except Exception as exc:
+            job.update(status="failed", phase="finished", errors=[str(exc.detail) if isinstance(exc, HTTPException) else str(exc)])
+    try:
+        threading.Thread(target=worker, daemon=True).start()
+    except Exception:
+        transfer_lock.release()
+        raise
+    return {"id": job.data["id"], "status": "running"}
+
+
+@app.post("/api/file/transfer")
+def transfer_files(req: TransferRequest):
+    return run_transfer(req)
+
+
+def run_transfer(req, progress=None, lock_acquired=False):
+    if not lock_acquired and not transfer_lock.acquire(blocking=False):
+        raise HTTPException(409, "已有移动任务正在执行")
+    try:
+        if scanner.is_scanning:
+            raise HTTPException(409, "请先停止扫描，再移动文件或目录")
+        if not req.paths or not req.destination.strip():
+            raise HTTPException(400, "请选择源文件/目录并填写目标目录")
+        destination = Path(req.destination).expanduser().resolve()
+        if not destination.is_dir():
+            raise HTTPException(400, "目标目录不存在，请先创建目标目录")
+        sources = []
+        for raw in req.paths:
+            source = Path(raw).expanduser()
+            if source.is_symlink():
+                raise HTTPException(400, f"源路径不能是符号链接: {source}")
+            source = source.resolve()
+            if not source.exists() or not is_safe_to_delete(str(source)):
+                raise HTTPException(400, f"源路径不存在或属于受保护路径: {source}")
+            if req.whole_directory != source.is_dir():
+                raise HTTPException(400, "全目录操作只接受目录，文件操作只接受文件")
+            target = destination / source.name
+            if target == source or (source.is_dir() and destination.is_relative_to(source)):
+                raise HTTPException(400, "目标不能是源路径本身或源目录的子目录")
+            if source not in sources:
+                sources.append(source)
+        if any(a != b and a.is_relative_to(b) for a in sources for b in sources):
+            raise HTTPException(400, "不能同时移动目录及其子目录")
+        # macOS 常用文件系统忽略大小写，Unicode 文件名也可能有不同编码形式。
+        def name_key(name):
+            return unicodedata.normalize("NFC", name).casefold()
+
+        occupied = {name_key(child.name) for child in destination.iterdir()}
+        # 优先保留本批次每个原始名称，防止自动序号占用另一个源文件的名称。
+        reserved = {name_key(source.name) for source in sources}
+        planned = []
+        for source in sources:
+            name = source.name
+            if name_key(name) in occupied:
+                stem = source.name if source.is_dir() else source.stem
+                suffix = "" if source.is_dir() else source.suffix
+                number = 1
+                while True:
+                    name = f"{stem} ({number}){suffix}"
+                    if name_key(name) not in occupied | reserved:
+                        break
+                    number += 1
+            occupied.add(name_key(name))
+            planned.append((source, destination / name))
+        if progress:
+            progress.update(items=[{"source": str(source), "target": str(target), "status": "pending", "error": ""} for source, target in planned])
+            total_bytes, total_files = 0, 0
+            def measure(path):
+                nonlocal total_bytes, total_files
+                progress.update(current_path=str(path))
+                if path.is_symlink():
+                    return
+                if path.is_dir():
+                    for child in path.iterdir():
+                        measure(child)
+                elif path.is_file():
+                    total_bytes += path.stat().st_size
+                    total_files += 1
+            for source, _ in planned:
+                measure(source)
+            progress.update(total_bytes=total_bytes, total_files=total_files)
+        results, errors, removed = [], [], []
+        for index, (source, target) in enumerate(planned):
+            def phase(name):
+                if progress:
+                    progress.update(phase=name, current_path=str(source))
+                    progress.item(index, status=name)
+            callback = progress.advance if progress else None
+            try:
+                phase("checking_source")
+                original = transfer_manifest(source, callback) if progress else transfer_manifest(source)
+                phase("copying")
+                if source.is_dir():
+                    # copytree 默认拒绝已存在的目标；包含隐藏文件、空目录和链接。
+                    shutil.copytree(source, target, symlinks=True, copy_function=lambda src, dst: copy_transfer_file(src, dst, progress))
+                else:
+                    copy_transfer_file(source, target, progress)
+                phase("verifying_target")
+                target_manifest = transfer_manifest(target, callback) if progress else transfer_manifest(target)
+                phase("verifying_source")
+                source_manifest = transfer_manifest(source, callback) if progress else transfer_manifest(source)
+                if target_manifest != original or source_manifest != original:
+                    raise ValueError("复制校验失败或源内容已变化，原件已保留")
+                if req.delete_original:
+                    phase("deleting")
+                    if source.is_dir():
+                        shutil.rmtree(source)
+                    else:
+                        source.unlink()
+                    removed.append(source)
+                results.append({"source": str(source), "target": str(target), "deleted_original": req.delete_original})
+                if progress:
+                    progress.item(index, status="completed")
+                    progress.update(success_count=len(results), results=list(results))
+            except Exception as exc:
+                errors.append(f"{source}: {exc}；目标可能包含已复制内容: {target}")
+                if progress:
+                    progress.item(index, status="failed", error=errors[-1])
+                    progress.update(errors=list(errors))
+        if removed:
+            with scanner.lock:
+                affected = [item["path"] for item in scanner.results
+                            if any(Path(item["path"]).resolve().is_relative_to(root) for root in removed)]
+            scanner.remove_from_results(affected)
+        return {"success_count": len(results), "results": results, "errors": errors}
+    finally:
+        transfer_lock.release()
+
+
 class RevealRequest(BaseModel):
     path: str
 
@@ -512,6 +763,8 @@ def get_system_info():
 
 @app.post("/api/scan/start")
 def start_scan(req: ScanRequest):
+    if transfer_lock.locked():
+        raise HTTPException(409, "移动任务执行中，请稍后扫描")
     expanded = os.path.expanduser(req.path)
     if not os.path.exists(expanded):
         raise HTTPException(status_code=400, detail=f"目标路径不存在: {req.path}")
@@ -592,6 +845,8 @@ def move_to_trash(file_path: str):
 
 @app.post("/api/file/delete")
 def delete_files(req: DeleteRequest):
+    if transfer_lock.locked():
+        raise HTTPException(409, "移动任务执行中，请稍后删除")
     success_count = 0
     freed_bytes = 0
     errors = []
